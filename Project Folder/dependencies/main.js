@@ -16,3 +16,5 @@ export const IMG_W = 480, IMG_H = 640, MAX16 = 65535;
 export const REGION_X = IMG_W / 2, REGION_Y = IMG_H / 2, REGION_R = 140;
 
 export const fmtConc = Cnm => (Cnm >= 1 ? Cnm : Cnm.toPrecision(3)) + " nM";
+
+export const STACK_LEAD_BASELINE_SEC = 5;

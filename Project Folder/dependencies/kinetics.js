@@ -2,7 +2,7 @@
 
 import {
   $, on, setStatus, state, notifyDataUpdated,
-  REGION_X, REGION_Y, REGION_R
+  REGION_X, REGION_Y, REGION_R, STACK_LEAD_BASELINE_SEC
 } from './main.js';
 
 const vadd   = (a, b) => a.map((v, i) => v + b[i]);
@@ -108,7 +108,7 @@ export function simulate() {
   const tBase   = +$("tBase").value;
   const tAssoc  = +$("tAssoc").value;
   const tDissoc = +$("tDissoc").value;
-  const cyc     = tAssoc + tDissoc;
+  const cyc     = STACK_LEAD_BASELINE_SEC + tAssoc + tDissoc;
 
   const noiseOn = $("noiseOn").checked;
   const noiseSd = +$("noiseSd").value || 0;
@@ -132,13 +132,15 @@ export function simulate() {
     let k = Math.floor((t - tBase) / cyc);
     if (k >= nSpots) k = nSpots - 1;
     const inCyc = (t - tBase) - k * cyc;
-    return inCyc < tAssoc ? concsM[k] : 0;
+    if (inCyc < STACK_LEAD_BASELINE_SEC) return 0;
+    return (inCyc - STACK_LEAD_BASELINE_SEC) < tAssoc ? concsM[k] : 0;
   };
 
   let Y = simRK4(grid, engine.deriv, new Array(engine.size).fill(0), Cfun);
   if (noiseOn) Y = Y.map((v, i) => v + noiseSd * gauss() + drift * (grid[i] / total));
 
   const nFrames = Math.round(cyc) + 1;
+
   const traces = concs.map((_, k) => {
     const startIdx = Math.round(tBase + k * cyc);
     return Y.slice(startIdx, startIdx + nFrames);
@@ -188,6 +190,47 @@ function genDilution() {
   simulate();
 }
 
+let cellFrequencies = [];
+let selectedCellIdx = 0;
+
+function evenSplit(n) {
+  const base = Math.floor(100 / n);
+  const arr = new Array(n).fill(base);
+  arr[n - 1] += 100 - base * n;
+  return arr;
+}
+
+function rebuildCellTypes() {
+  const n = Math.max(1, Math.round(+$("regionCount").value) || 1);
+  cellFrequencies = evenSplit(n);
+  selectedCellIdx = Math.min(selectedCellIdx, n - 1);
+
+  const select = $("regionSelect");
+  if (select) {
+    select.innerHTML = "";
+    for (let i = 0; i < n; i++) {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = `Model #${i + 1}`;
+      select.appendChild(opt);
+    }
+    select.selectedIndex = selectedCellIdx;
+  }
+
+  refreshFrequencyField();
+}
+
+function refreshFrequencyField() {
+  const field = $("frequncy");
+  if (!field) return;
+  const usedByOthers = cellFrequencies.reduce(
+    (sum, f, i) => i === selectedCellIdx ? sum : sum + f, 0
+  );
+  field.min = 0;
+  field.max = Math.max(0, 100 - usedByOthers);
+  field.value = cellFrequencies[selectedCellIdx] ?? 0;
+}
+
 MODEL_INPUT_IDS.forEach(id => {
   const el = $(id);
   if (!el) { console.warn("Missing element:", id); return; }
@@ -218,4 +261,29 @@ on("noiseOn", "change", () => {
 
 on("genDil", "click", genDilution);
 
+on("regionCount", "input", rebuildCellTypes);
+
+on("regionSelect", "change", () => {
+  const select = $("regionSelect");
+  selectedCellIdx = select ? select.selectedIndex : 0;
+  refreshFrequencyField();
+});
+
+on("frequncy", "input", () => {
+  const field = $("frequncy");
+  if (!field) return;
+  const usedByOthers = cellFrequencies.reduce(
+    (sum, f, i) => i === selectedCellIdx ? sum : sum + f, 0
+  );
+  const max = Math.max(0, 100 - usedByOthers);
+  let v = +field.value;
+  if (!Number.isFinite(v)) v = 0;
+  if (v < 0) v = 0;
+  if (v > max) v = max;
+  field.value = v;
+  field.max = max;
+  cellFrequencies[selectedCellIdx] = v;
+});
+
 setModelVisibility();
+rebuildCellTypes();

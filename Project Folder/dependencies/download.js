@@ -1,10 +1,8 @@
-import { state, setStatus, $, fmtConc, IMG_W, IMG_H, MAX16 } from './main.js';
+import { state, setStatus, $, fmtConc, IMG_W, IMG_H, MAX16, STACK_LEAD_BASELINE_SEC } from './main.js';
 import { getMatrix16, decodeFrame, findPeakInjectionFrame, getMatrix16ForBrightness } from './render.js';
 
 const CALIBRATION_RMAX = -0.575;
-const CALIBRATION_KD   = 1;
 const BLANK_RMAX = 0;
-const BLANK_KD   = 0;
 
 function u8ToBase64(u8) {
   const CHUNK = 0x8000;
@@ -104,8 +102,8 @@ async function encodeResponseInput() {
   const tAssoc = +$("tAssoc").value;
   const nTotal = nSpots + 2;
 
-  const calibTrace = stepResponseTrace(nFrames, tAssoc, CALIBRATION_RMAX, CALIBRATION_KD);
-  const blankTrace  = stepResponseTrace(nFrames, tAssoc, BLANK_RMAX, BLANK_KD);
+  const calibTrace = stepResponseTrace(nFrames, STACK_LEAD_BASELINE_SEC, tAssoc, CALIBRATION_RMAX);
+  const blankTrace  = stepResponseTrace(nFrames, STACK_LEAD_BASELINE_SEC, tAssoc, BLANK_RMAX);
 
   const parts = [];
   for (const rg of regions) {
@@ -149,18 +147,17 @@ function stkFileName(concIdx) {
 }
 
 function getInjectionWindow(seqIndex = 0) {
-  const tBase  = +$("tBase").value;
   const tAssoc = +$("tAssoc").value;
   const offset = stkTimeOffset(seqIndex);
-  const tB = tBase + offset;
-  const tD = tAssoc + offset;
+  const tB = STACK_LEAD_BASELINE_SEC + offset;
+  const tD = STACK_LEAD_BASELINE_SEC + tAssoc + offset;
   return { tB, tD };
 }
 
-function stepResponseTrace(nFrames, tAssoc, Rmax, kd) {
+function stepResponseTrace(nFrames, leadSec, tAssoc, Rmax) {
   const trace = new Float64Array(nFrames);
   for (let t = 0; t < nFrames; t++) {
-    trace[t] = (t < tAssoc) ? Rmax : Rmax * Math.exp(-kd * (t - tAssoc));
+    trace[t] = (t >= leadSec && t < leadSec + tAssoc) ? Rmax : 0;
   }
   return trace;
 }
@@ -173,22 +170,21 @@ function specialTraceBrightness16(trace, timeIdx) {
   return Math.round(norm * MAX16);
 }
 
-function buildSpecialStkBuffer(kind, baseDate, seqIndex) {
+function buildSpecialStkBuffer(kind, baseDate, wallSeqIndex) {
   const FRAME_TYPE_SPR_GRAY16 = 101;
   const nFrames       = state.parsed.nFrames;
   const bytesPerFrame = IMG_W * IMG_H * 2;
-  const tBase  = +$("tBase").value;
   const tAssoc = +$("tAssoc").value;
 
   const isCalibration = kind === 'calibration';
   const trace = stepResponseTrace(
-    nFrames, tAssoc,
-    isCalibration ? CALIBRATION_RMAX : BLANK_RMAX,
-    isCalibration ? CALIBRATION_KD   : BLANK_KD
+    nFrames, STACK_LEAD_BASELINE_SEC, tAssoc,
+    isCalibration ? CALIBRATION_RMAX : BLANK_RMAX
   );
 
-  const timeOffset   = stkTimeOffset(seqIndex);
-  const startTimeStr = formatTimestamp(new Date(baseDate.getTime() + timeOffset * 1000));
+  const timeOffset   = 0;
+  const wallOffset   = stkTimeOffset(wallSeqIndex);
+  const startTimeStr = formatTimestamp(new Date(baseDate.getTime() + wallOffset * 1000));
 
   const enc = new TextEncoder();
   const concStr  = isCalibration ? 'C' : '0';
@@ -245,22 +241,23 @@ function buildSpecialStkBuffer(kind, baseDate, seqIndex) {
   }
 
   writeInt32(1000);
-  writeFloat32(tBase + timeOffset);
+  writeFloat32(STACK_LEAD_BASELINE_SEC + timeOffset);
   writeInt32(101);
   writeInt32(1000);
-  writeFloat32(tAssoc + timeOffset);
+  writeFloat32(STACK_LEAD_BASELINE_SEC + tAssoc + timeOffset);
   writeInt32(102);
 
   return buf;
 }
 
-function buildStkBuffer(baseDate = new Date(), concIdx = 0, seqIndex = concIdx) {
+function buildStkBuffer(baseDate = new Date(), concIdx = 0, seqIndex = concIdx, wallSeqIndex = seqIndex) {
   const FRAME_TYPE_SPR_GRAY16 = 101;
   const nFrames       = state.parsed.nFrames;
   const bytesPerFrame = IMG_W * IMG_H * 2;
   const timeOffset    = stkTimeOffset(seqIndex);
+  const wallOffset    = stkTimeOffset(wallSeqIndex);
 
-  const startTimeStr  = formatTimestamp(new Date(baseDate.getTime() + timeOffset * 1000));
+  const startTimeStr  = formatTimestamp(new Date(baseDate.getTime() + wallOffset * 1000));
 
   const enc = new TextEncoder();
   const c        = state.parsed.concs[concIdx];
@@ -332,7 +329,7 @@ function addStkFilesToFolder(folder, baseDate = new Date()) {
   folder.file('spr_stack_calibration.stk', buildSpecialStkBuffer('calibration', baseDate, 0));
   folder.file('spr_stack_blank.stk', buildSpecialStkBuffer('blank', baseDate, 1));
   for (let c = 0; c < state.parsed.nSpots; c++) {
-    folder.file(stkFileName(c), buildStkBuffer(baseDate, c, c + 2));
+    folder.file(stkFileName(c), buildStkBuffer(baseDate, c, c, c + 2));
   }
 }
 
