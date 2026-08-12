@@ -17,32 +17,36 @@
             <p class="group-title">Model generation</p>
             <div class="field">
               <label>Confluency <span class="unit"> Percentage (%)</span></label>
-              <input type="number" id="Confluency" value="5" step="1">
+              <input type="number" id="Confluency" value="5" step="1" max="100">
               <h1></h1>
               <label>Seeding</label>
-              <input type="number" class="seed" id="inputSeed">
-              <p></p>
+              <label>Input Seed</label>
+              <input type="number" class="seed" id="inputSeed" value="1">
               <button class="pri" id="genSeed">Generate Random Seed</button>
             </div>
             <div class="check">
-                <input type="checkbox">
-                <label>Allow Overlap?</label>
-              </div>
+              <input type="checkbox" id="overlap">
+              <label>Allow Overlap</label>
+            </div>
+            <div class="check">
+              <input type="checkbox" id="dominance">
+              <label>Allow Edge-Dominance</label>
+            </div>
           </div>
 
           <div class="group">
-            <p class="group-title">Cell Composition</p>
+            <p class="group-title">Model Composition</p>
             <div class="section">
               <div class="field">
-                <label>Cell Types</label>
+                <label>Model Types</label>
                 <input type="number" id="regionCount" min="1" value="3">
               </div>
               <div class="field">
-                <label>Cell</label>
+                <label>Model</label>
                 <select id="regionSelect"></select>
               </div>
               <div class="field">
-                <label>Frequency of Cell Type</label>
+                <label>Frequency of Model Type</label>
                 <input type="number" id="frequncy" value="10" min="0" max="100">
               </div>
             </div>
@@ -61,14 +65,11 @@
                 </select>
                 <p class="hint" id="modelHint"></p>
               </div>
-              <div class="check">
-                <input type="checkbox" id="mtlOn">
-                <label for="mtlOn">Mass-transport limitation</label>
-              </div>
             </div>
 
             <div class="section">
               <p class="label">Kinetic constants</p>
+
               <!-- 1:1 / mass transport rates -->
               <div data-group="simple">
                 <div class="grid2">
@@ -149,10 +150,15 @@
                 </div>
                 <div class="field">
                   <label>R<sub>max2</sub> (max response) <span class="unit">RU</span></label>
-                <input type="number" id="Rmax2" value="0" step="any">
+                <input type="number" id="Rmax2" value="1" step="any">
               </div>
               </div>
 
+              <!-- mass-transport limitation: a modifier that applies to ANY model -->
+              <div class="check">
+                <input type="checkbox" id="mtlOn">
+                <label for="mtlOn">Mass-transport limitation</label>
+              </div>
               <div class="field" id="ktField" style="display:none">
                 <label>k<sub>tr</sub> (transport coeff.) <span class="unit">RU·M⁻¹s⁻¹</span></label>
                 <input type="number" id="kt" value="1e8" step="any">
@@ -160,7 +166,7 @@
 
               <div class="field">
                 <label>R<sub>max</sub> (max response) <span class="unit">RU</span></label>
-                <input type="number" id="Rmax" value="0" step="any">
+                <input type="number" id="Rmax" value="1" step="any">
               </div>
             </div>
           </div>
@@ -210,7 +216,6 @@
         </main>
         <aside class="sidebar">
             <h1>SPR Stack Preview</h1>
-            <div id="status" class="status"></div>
               <div class="label">Frame preview</div>
               <div class="row">
                 <button class="pri" id="play">Play</button>
@@ -227,7 +232,8 @@
                 <div class="card">
                     <div class="label">Export</div>
                     <div class="btn-row">
-                        <button class="pri" id="downloadAll"> Download all files </button>
+                      <button class="pri" id="downloadAll"> Download all files </button>
+                      <div id="status" class="status"></div>
                     </div>
                 </div>
             </div>

@@ -2,7 +2,7 @@
 
 import {
   $, on, setStatus, state, notifyDataUpdated,
-  REGION_X, REGION_Y, REGION_R, STACK_LEAD_BASELINE_SEC
+  STACK_LEAD_BASELINE_SEC
 } from './main.js';
 
 const vadd   = (a, b) => a.map((v, i) => v + b[i]);
@@ -104,6 +104,53 @@ const MODEL_INPUT_IDS = [
   "kt", "Rmax", "Rmax2"
 ];
 
+const MODEL_FIELD_IDS = [...MODEL_INPUT_IDS, "mtlOn"];
+
+function defaultCellModelConfig() {
+  return {
+    model: "langmuir",
+    ka: 1e6, kd: 1e-3,
+    ka1: 1e6, kd1: 1e-2, ka2: 5e-3, kd2: 1e-3,
+    hetka1: 1e6, hetkd1: 1e-2, hetka2: 1e5, hetkd2: 1e-3,
+    bivka1: 1e6, bivkd1: 1e-2, bivka2: 5e-3, bivkd2: 1e-3,
+    kt: 1e8, Rmax: 1, Rmax2: 1,
+    mtlOn: false
+  };
+}
+
+let cellModelConfigs = [];
+let regionCache = [];
+let lastSharedKey = null;
+
+function saveCellModelConfig(idx) {
+  if (idx == null || idx < 0) return;
+  const cfg = {};
+  MODEL_FIELD_IDS.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    cfg[id] = el.type === "checkbox" ? el.checked : el.value;
+  });
+  cellModelConfigs[idx] = cfg;
+}
+
+function loadCellModelConfig(idx) {
+  const cfg = cellModelConfigs[idx] || defaultCellModelConfig();
+  MODEL_FIELD_IDS.forEach(id => {
+    const el = $(id);
+    if (!el || !(id in cfg)) return;
+    if (el.type === "checkbox") el.checked = cfg[id];
+    else el.value = cfg[id];
+  });
+  setModelVisibility();
+  const ktField = $("ktField");
+  const mtlEl   = $("mtlOn");
+  if (ktField) ktField.style.display = (mtlEl && mtlEl.checked) ? "" : "none";
+}
+
+function sharedParamsKey(tBase, tAssoc, tDissoc, concs, noiseOn, noiseSd, drift) {
+  return JSON.stringify([tBase, tAssoc, tDissoc, concs, noiseOn, noiseSd, drift]);
+}
+
 export function simulate() {
   const tBase   = +$("tBase").value;
   const tAssoc  = +$("tAssoc").value;
@@ -118,50 +165,68 @@ export function simulate() {
   const nSpots = concs.length;
   const total  = tBase + nSpots * cyc;
 
-  const grid = Array.from({ length: Math.round(total) + 1 }, (_, i) => i);
-
-  const model = $("model").value;
-  const Rmax  = +$("Rmax").value || 0;
-
-  const base   = makeDeriv(model, Rmax);
-  const engine = ($("mtlOn") && $("mtlOn").checked) ? withTransport(base, +$("kt").value || 0) : base;
-
+  const grid   = Array.from({ length: Math.round(total) + 1 }, (_, i) => i);
   const concsM = concs.map(Cnm => Cnm * 1e-9);
-  const Cfun = t => {
-    if (t < tBase) return 0;
-    let k = Math.floor((t - tBase) / cyc);
-    if (k >= nSpots) k = nSpots - 1;
-    const inCyc = (t - tBase) - k * cyc;
-    if (inCyc < STACK_LEAD_BASELINE_SEC) return 0;
-    return (inCyc - STACK_LEAD_BASELINE_SEC) < tAssoc ? concsM[k] : 0;
-  };
 
-  let Y = simRK4(grid, engine.deriv, new Array(engine.size).fill(0), Cfun);
-  if (noiseOn) Y = Y.map((v, i) => v + noiseSd * gauss() + drift * (grid[i] / total));
-
-  const nFrames = Math.round(cyc) + 1;
-
-  const traces = concs.map((_, k) => {
-    const startIdx = Math.round(tBase + k * cyc);
-    return Y.slice(startIdx, startIdx + nFrames);
-  });
-
-  const region = { idx: 1, x: REGION_X, y: REGION_Y, r: REGION_R, traces };
-
-  let gMin = Infinity, gMax = -Infinity;
-  traces.forEach(tr => tr.forEach(v => {
-    if (v < gMin) gMin = v;
-    if (v > gMax) gMax = v;
-  }));
-  if (!isFinite(gMin)) { gMin = 0; gMax = 0; }
-
+  const nFrames   = Math.round(cyc) + 1;
   const localGrid = Array.from({ length: nFrames }, (_, i) => i);
 
-  state.parsed   = { times: new Float64Array(localGrid), grid: localGrid, nFrames, nSpots, concs,
-                      globalMin: gMin, globalMax: gMax, regions: [region] };
-  state.lastData = { grid: localGrid };
+  const sharedKey     = sharedParamsKey(tBase, tAssoc, tDissoc, concs, noiseOn, noiseSd, drift);
+  const sharedChanged = sharedKey !== lastSharedKey;
+  lastSharedKey = sharedKey;
 
-  setStatus(`${nFrames} pts × ${nSpots} conc · serial, no regen · signal ${gMax > 0 ? "on" : "black (Rmax = 0)"}`);
+  let gMin = Infinity, gMax = -Infinity;
+
+  const regions = cellModelConfigs.map((cfg, idx) => {
+    const key    = JSON.stringify(cfg);
+    const cached = regionCache[idx];
+
+    let region;
+    if (!sharedChanged && cached && cached.key === key) {
+      region = cached.region;
+    } else {
+      const Rmax   = +cfg.Rmax || 0;
+      const base   = makeDeriv(cfg.model, Rmax, id => +cfg[id]);
+      const engine = cfg.mtlOn ? withTransport(base, +cfg.kt || 0) : base;
+
+      const Cfun = t => {
+        if (t < tBase) return 0;
+        let k = Math.floor((t - tBase) / cyc);
+        if (k >= nSpots) k = nSpots - 1;
+        const inCyc = (t - tBase) - k * cyc;
+        if (inCyc < STACK_LEAD_BASELINE_SEC) return 0;
+        return (inCyc - STACK_LEAD_BASELINE_SEC) < tAssoc ? concsM[k] : 0;
+      };
+
+      let Y = simRK4(grid, engine.deriv, new Array(engine.size).fill(0), Cfun);
+      if (noiseOn) Y = Y.map((v, i) => v + noiseSd * gauss() + drift * (grid[i] / total));
+
+      const traces = concs.map((_, k) => {
+        const startIdx = Math.round(tBase + k * cyc);
+        return Y.slice(startIdx, startIdx + nFrames);
+      });
+
+      region = { idx: idx + 1, traces };
+      regionCache[idx] = { key, region };
+    }
+
+    region.traces.forEach(tr => tr.forEach(v => {
+      if (v < gMin) gMin = v;
+      if (v > gMax) gMax = v;
+    }));
+    return region;
+  });
+
+  regionCache.length = cellModelConfigs.length;
+
+  if (!isFinite(gMin)) { gMin = 0; gMax = 0; }
+
+  state.parsed          = { times: new Float64Array(localGrid), grid: localGrid, nFrames, nSpots, concs,
+                             globalMin: gMin, globalMax: gMax, regions };
+  state.lastData         = { grid: localGrid };
+  state.cellFrequencies  = cellFrequencies;
+
+  setStatus(`${nFrames} pts × ${nSpots} conc · ${regions.length} cell type${regions.length > 1 ? "s" : ""} · serial, no regen`);
 
   notifyDataUpdated();
 }
@@ -202,7 +267,13 @@ function evenSplit(n) {
 
 function rebuildCellTypes() {
   const n = Math.max(1, Math.round(+$("regionCount").value) || 1);
+
+  saveCellModelConfig(selectedCellIdx);
+
   cellFrequencies = evenSplit(n);
+  while (cellModelConfigs.length < n) cellModelConfigs.push(defaultCellModelConfig());
+  cellModelConfigs.length = n;
+
   selectedCellIdx = Math.min(selectedCellIdx, n - 1);
 
   const select = $("regionSelect");
@@ -217,6 +288,7 @@ function rebuildCellTypes() {
     select.selectedIndex = selectedCellIdx;
   }
 
+  loadCellModelConfig(selectedCellIdx);
   refreshFrequencyField();
 }
 
@@ -236,6 +308,7 @@ MODEL_INPUT_IDS.forEach(id => {
   if (!el) { console.warn("Missing element:", id); return; }
   el.addEventListener("input", () => {
     if (id === "model") setModelVisibility();
+    saveCellModelConfig(selectedCellIdx);
     simulate();
   });
 });
@@ -243,6 +316,7 @@ MODEL_INPUT_IDS.forEach(id => {
 on("mtlOn", "change", () => {
   const kt = $("ktField");
   if (kt) kt.style.display = $("mtlOn").checked ? "" : "none";
+  saveCellModelConfig(selectedCellIdx);
   simulate();
 });
 
@@ -261,11 +335,13 @@ on("noiseOn", "change", () => {
 
 on("genDil", "click", genDilution);
 
-on("regionCount", "input", rebuildCellTypes);
+on("regionCount", "input", () => { rebuildCellTypes(); simulate(); });
 
 on("regionSelect", "change", () => {
+  saveCellModelConfig(selectedCellIdx);
   const select = $("regionSelect");
   selectedCellIdx = select ? select.selectedIndex : 0;
+  loadCellModelConfig(selectedCellIdx);
   refreshFrequencyField();
 });
 
@@ -283,6 +359,8 @@ on("frequncy", "input", () => {
   field.value = v;
   field.max = max;
   cellFrequencies[selectedCellIdx] = v;
+  state.cellFrequencies = cellFrequencies;
+  notifyDataUpdated();
 });
 
 setModelVisibility();

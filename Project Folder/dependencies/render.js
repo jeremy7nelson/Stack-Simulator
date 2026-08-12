@@ -15,13 +15,24 @@ function mulberry32(seed) {
   };
 }
 
+function buildCellTypeBag(frequencies) {
+  const bag = [];
+  frequencies.forEach((freq, idx) => {
+    for (let i = 0; i < Math.round(freq); i++) bag.push(idx);
+  });
+  return bag.length ? bag : [0];
+}
+
+const EDGE_FLOOR = 0.15;
+
 function generateCapacityField({
   m, n,
-  capacityBins,
+  cellTypeBag,
   targetConfluence,
   rMin, rMax,
   maxCircles = 5000,
-  seed
+  seed,
+  edgeDominance
 }) {
   const rng = mulberry32(seed);
   const noOverlap = !allowOverlap();
@@ -29,18 +40,20 @@ function generateCapacityField({
   const covered = new Uint8Array(m * n);
   let coveredCount = 0;
 
-  const s = new Float32Array(m * n);
+  const regionOf   = new Int16Array(m * n).fill(-1);
+  const edgeWeight  = new Float32Array(m * n).fill(1);
+  const bestPower   = new Float32Array(m * n).fill(Infinity);
   const circles = [];
 
   const MAX_OVERLAP_RETRIES = 30;
 
   function placeOneCircle() {
-    let ci, cj, r, cap, tries = 0;
+    let ci, cj, r, regionIdx, tries = 0;
     do {
       ci = rng() * m;
       cj = rng() * n;
       r  = rMin + rng() * (rMax - rMin);
-      cap = capacityBins[(rng() * capacityBins.length) | 0];
+      regionIdx = cellTypeBag[(rng() * cellTypeBag.length) | 0];
       tries++;
     } while (noOverlap && circleOverlapsAny(ci, cj, r, circles) && tries < MAX_OVERLAP_RETRIES);
 
@@ -56,11 +69,28 @@ function generateCapacityField({
         if (d2 <= r2) {
           const k = i * n + j;
           if (covered[k] === 0) { covered[k] = 1; coveredCount++; }
-          if (cap > s[k]) s[k] = cap;
+
+          // Power-diagram (Laguerre) ownership: whichever circle has the
+          // smallest d^2 - r^2 at this pixel wins it, so a bigger disc can
+          // rightfully claim pixels nearer a smaller disc's own centre.
+          // Order-independent, so overlapping circles never simply erase
+          // whichever was placed first (or last).
+          const power = d2 - r2;
+          if (power < bestPower[k]) {
+            bestPower[k] = power;
+            regionOf[k]  = regionIdx;
+            // Edge dominance: brightest at the disc's own rim, dimmest at its
+            // own centre — measured from THIS circle's outer boundary only,
+            // so a cell fully enclosed by neighbours never shows a bright rim.
+            // When disabled, every owned pixel stays at full weight (flat).
+            edgeWeight[k] = edgeDominance
+              ? EDGE_FLOOR + (1 - EDGE_FLOOR) * (d2 / r2)
+              : 1;
+          }
         }
       }
     }
-    circles.push({ ci, cj, r, capacity: cap });
+    circles.push({ ci, cj, r, regionIdx });
   }
 
   let iter = 0;
@@ -69,7 +99,7 @@ function generateCapacityField({
     iter++;
   }
 
-  return { s, circles, achievedConfluence: coveredCount / (m * n) };
+  return { regionOf, edgeWeight, circles, achievedConfluence: coveredCount / (m * n) };
 }
 
 function circleOverlapsAny(ci, cj, r, circles) {
@@ -86,7 +116,13 @@ function allowOverlap() {
   return el ? el.checked : true;
 }
 
+function allowEdgeDominance() {
+  const el = $("dominance");
+  return el ? el.checked : false;
+}
+
 on("overlap", "change", () => refreshCapacityFieldIfNeeded());
+on("dominance", "change", () => refreshCapacityFieldIfNeeded());
 
 function getSeed() {
   const el = $("inputSeed");
@@ -102,10 +138,9 @@ on("genSeed", "click", () => {
 
 on("inputSeed", "input", refreshCapacityFieldIfNeeded);
 
-const CAPACITY_BINS = [1.0];
 const CIRCLE_R_MIN = 30, CIRCLE_R_MAX = 50;
 
-let lastFieldSeed, lastFieldConfluence, lastFieldOverlap;
+let lastFieldSeed, lastFieldConfluence, lastFieldOverlap, lastFieldFreqKey, lastFieldDominance;
 
 function getTargetConfluence() {
   const el = $("Confluency");
@@ -117,29 +152,38 @@ function refreshCapacityFieldIfNeeded() {
   const seed = getSeed();
   const targetConfluence = getTargetConfluence();
   const overlap = allowOverlap();
+  const dominance = allowEdgeDominance();
+  const freqKey = (state.cellFrequencies || []).join(",");
 
   const unchanged = state.capacityField
     && seed === lastFieldSeed
     && targetConfluence === lastFieldConfluence
-    && overlap === lastFieldOverlap;
+    && overlap === lastFieldOverlap
+    && dominance === lastFieldDominance
+    && freqKey === lastFieldFreqKey;
   if (unchanged) return;
 
   state.capacityField = generateCapacityField({
     m: IMG_H, n: IMG_W,
-    capacityBins: CAPACITY_BINS,
+    cellTypeBag: buildCellTypeBag(state.cellFrequencies || [100]),
     targetConfluence,
     rMin: CIRCLE_R_MIN, rMax: CIRCLE_R_MAX,
-    seed
+    seed,
+    edgeDominance: dominance
   });
 
   lastFieldSeed = seed;
   lastFieldConfluence = targetConfluence;
   lastFieldOverlap = overlap;
+  lastFieldDominance = dominance;
+  lastFieldFreqKey = freqKey;
 }
 
 on("Confluency", "input", refreshCapacityFieldIfNeeded);
 
 function updateStackImage() {
+  refreshCapacityFieldIfNeeded();
+
   const results = $("results");
   if (!state.parsed || !state.parsed.regions || state.parsed.nSpots === 0 || state.parsed.nFrames === 0) {
     if (results) results.style.display = "none";
@@ -189,12 +233,13 @@ function stampDisk(mat, cx, cy, r, val) {
   }
 }
 
-function compositeCapacityField(mat, b16) {
+function compositeCapacityField(mat, b16ByRegion) {
   const field = state.capacityField;
   if (!field) return;
-  const { s } = field;
+  const { regionOf, edgeWeight } = field;
   for (let k = 0; k < mat.length; k++) {
-    let v = Math.round(s[k] * b16);
+    const rIdx = regionOf[k];
+    let v = rIdx >= 0 ? Math.round((b16ByRegion[rIdx] ?? 0) * edgeWeight[k]) : 0;
     if (v < 0) v = 0; else if (v > MAX16) v = MAX16;
     mat[k] = v;
   }
@@ -204,16 +249,22 @@ export function getMatrix16(globalFrame) {
   const mat = new Uint16Array(IMG_H * IMG_W);
   if (!state.parsed || !state.parsed.regions) return mat;
   const { concIdx, timeIdx } = decodeFrame(globalFrame);
-  for (const rg of state.parsed.regions) {
-    const b16 = regionBrightness16(rg, concIdx, timeIdx);
-    compositeCapacityField(mat, b16);
-  }
+  const b16ByRegion = state.parsed.regions.map(rg => regionBrightness16(rg, concIdx, timeIdx));
+  compositeCapacityField(mat, b16ByRegion);
   return mat;
 }
 
 export function getMatrix16ForBrightness(b16) {
   const mat = new Uint16Array(IMG_H * IMG_W);
-  compositeCapacityField(mat, b16);
+  const field = state.capacityField;
+  if (!field) return mat;
+  const { regionOf, edgeWeight } = field;
+  for (let k = 0; k < mat.length; k++) {
+    if (regionOf[k] < 0) continue;
+    let v = Math.round(b16 * edgeWeight[k]);
+    if (v < 0) v = 0; else if (v > MAX16) v = MAX16;
+    mat[k] = v;
+  }
   return mat;
 }
 
