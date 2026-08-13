@@ -59,15 +59,6 @@ async function encodeCompressedData(typedArrayOrBuffer) {
   return u8ToBase64(compressed);
 }
 
-async function decodeCompressedData(base64Str) {
-  const binary = atob(base64Str);
-  const compressed = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) compressed[i] = binary.charCodeAt(i);
-  return deflateRawDecompress(compressed);
-}
-
-
-
 function formatTimestamp(when = new Date()) {
   const pad = n => String(n).padStart(2, '0');
   return `${pad(when.getMonth()+1)}/${pad(when.getDate())}/${when.getFullYear()} ` +
@@ -349,8 +340,6 @@ async function buildRoiXml(timestamp = formatTimestamp()) {
   const bfCompressed = await deflateRawCompress(bfBuf);
   const bfB64 = u8ToBase64(bfCompressed);
 
-  let roiEntries = "";
-
   const winW = Math.round(sprGrayW / 2), winH = Math.round(sprGrayH / 2);
   const winX0 = Math.round((sprGrayW - winW) / 2), winY0 = Math.round((sprGrayH - winH) / 2);
   const sprWindow = `${winX0}, ${winY0}, ${winX0 + winW}, ${winY0 + winH}`;
@@ -359,7 +348,6 @@ async function buildRoiXml(timestamp = formatTimestamp()) {
           <RoiGroup>
             <Timestamp>${timestamp}</Timestamp>
             <SprWindow>${sprWindow}</SprWindow>
-          ${roiEntries}
             <Snapshot>
               <Width>${sprGrayW}</Width>
               <Height>${sprGrayH}</Height>
@@ -413,19 +401,6 @@ async function downloadAll() {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 
   setStatus("Export ready: spr_export.zip");
-}
-
-async function downloadSTK() {
-  if (!state.parsed || !state.lastData) return;
-  const zip = new JSZip();
-  addStkFilesToFolder(zip.folder("Stack"), new Date());
-  const blob = await zip.generateAsync({ type: "blob" });
-  const a = Object.assign(document.createElement('a'), {
-    href:     URL.createObjectURL(blob),
-    download: 'DATA.zip'
-  });
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
 document.getElementById("downloadAll").addEventListener("click", downloadAll);

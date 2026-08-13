@@ -138,7 +138,7 @@ on("genSeed", "click", () => {
 
 on("inputSeed", "input", refreshCapacityFieldIfNeeded);
 
-const CIRCLE_R_MIN = 30, CIRCLE_R_MAX = 50;
+const CIRCLE_R_MIN = 15, CIRCLE_R_MAX = 25;
 
 let lastFieldSeed, lastFieldConfluence, lastFieldOverlap, lastFieldFreqKey, lastFieldDominance;
 
@@ -218,19 +218,6 @@ function regionBrightness16(rg, concIdx, timeIdx) {
   const ru    = rg.traces[concIdx][timeIdx];
   const norm  = Math.max(0, (ru - globalMin) / denom);
   return Math.round(norm * MAX16);
-}
-
-function stampDisk(mat, cx, cy, r, val) {
-  if (!isFinite(cx) || !isFinite(cy) || !isFinite(r) || r <= 0) return;
-  const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(IMG_W - 1, Math.ceil(cx + r));
-  const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(IMG_H - 1, Math.ceil(cy + r));
-  const r2 = r * r;
-  for (let py = y0; py <= y1; py++) {
-    for (let px = x0; px <= x1; px++) {
-      const dx = px - cx, dy = py - cy;
-      if (dx * dx + dy * dy <= r2) mat[py * IMG_W + px] = val;
-    }
-  }
 }
 
 function compositeCapacityField(mat, b16ByRegion) {
