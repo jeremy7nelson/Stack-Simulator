@@ -4,6 +4,10 @@ import {
   $, on, state, onDataUpdated, fmtConc, IMG_W, IMG_H, MAX16
 } from './main.js';
 import { simulate } from './kinetics.js';
+import {
+  isPixelNoiseOn, isDriftOn, isNSAOn,
+  computeSpatialWeights, getFrameArtifactScalars, pixelNoiseValue
+} from './noise.js';
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -70,19 +74,10 @@ function generateCapacityField({
           const k = i * n + j;
           if (covered[k] === 0) { covered[k] = 1; coveredCount++; }
 
-          // Power-diagram (Laguerre) ownership: whichever circle has the
-          // smallest d^2 - r^2 at this pixel wins it, so a bigger disc can
-          // rightfully claim pixels nearer a smaller disc's own centre.
-          // Order-independent, so overlapping circles never simply erase
-          // whichever was placed first (or last).
           const power = d2 - r2;
           if (power < bestPower[k]) {
             bestPower[k] = power;
             regionOf[k]  = regionIdx;
-            // Edge dominance: brightest at the disc's own rim, dimmest at its
-            // own centre — measured from THIS circle's outer boundary only,
-            // so a cell fully enclosed by neighbours never shows a bright rim.
-            // When disabled, every owned pixel stays at full weight (flat).
             edgeWeight[k] = edgeDominance
               ? EDGE_FLOOR + (1 - EDGE_FLOOR) * (d2 / r2)
               : 1;
@@ -99,7 +94,9 @@ function generateCapacityField({
     iter++;
   }
 
-  return { regionOf, edgeWeight, circles, achievedConfluence: coveredCount / (m * n) };
+  const { nsaRate, gDrift } = computeSpatialWeights(edgeWeight, m, n);
+
+  return { regionOf, edgeWeight, nsaRate, gDrift, circles, achievedConfluence: coveredCount / (m * n) };
 }
 
 function circleOverlapsAny(ci, cj, r, circles) {
@@ -138,7 +135,7 @@ on("genSeed", "click", () => {
 
 on("inputSeed", "input", refreshCapacityFieldIfNeeded);
 
-const CIRCLE_R_MIN = 15, CIRCLE_R_MAX = 25;
+const CIRCLE_R_MIN = 30, CIRCLE_R_MAX = 50;
 
 let lastFieldSeed, lastFieldConfluence, lastFieldOverlap, lastFieldFreqKey, lastFieldDominance;
 
@@ -220,13 +217,34 @@ function regionBrightness16(rg, concIdx, timeIdx) {
   return Math.round(norm * MAX16);
 }
 
-function compositeCapacityField(mat, b16ByRegion) {
+function compositeCapacityField(mat, b16ByRegion, concIdx, timeIdx) {
   const field = state.capacityField;
   if (!field) return;
-  const { regionOf, edgeWeight } = field;
+  const { regionOf, edgeWeight, nsaRate, gDrift } = field;
+
+  const nsaOn   = isNSAOn();
+  const driftOn = isDriftOn();
+  const pxOn    = isPixelNoiseOn();
+
+  const denom  = (state.parsed.globalMax - state.parsed.globalMin) || 1;
+  const scale16 = MAX16 / denom;
+
+  let yns = 0, driftVal = 0;
+  if (nsaOn || driftOn) ({ yns, driftVal } = getFrameArtifactScalars(concIdx, timeIdx));
+
+  const n = IMG_W;
   for (let k = 0; k < mat.length; k++) {
     const rIdx = regionOf[k];
-    let v = rIdx >= 0 ? Math.round((b16ByRegion[rIdx] ?? 0) * edgeWeight[k]) : 0;
+    let v = rIdx >= 0 ? (b16ByRegion[rIdx] ?? 0) * edgeWeight[k] : 0;
+
+    if (nsaOn)   v += nsaRate[k] * yns * scale16;
+    if (driftOn) v += gDrift[k]  * driftVal * scale16;
+    if (pxOn) {
+      const i = (k / n) | 0, j = k % n;
+      v += pixelNoiseValue(i, j, timeIdx) * scale16;
+    }
+
+    v = Math.round(v);
     if (v < 0) v = 0; else if (v > MAX16) v = MAX16;
     mat[k] = v;
   }
@@ -237,7 +255,7 @@ export function getMatrix16(globalFrame) {
   if (!state.parsed || !state.parsed.regions) return mat;
   const { concIdx, timeIdx } = decodeFrame(globalFrame);
   const b16ByRegion = state.parsed.regions.map(rg => regionBrightness16(rg, concIdx, timeIdx));
-  compositeCapacityField(mat, b16ByRegion);
+  compositeCapacityField(mat, b16ByRegion, concIdx, timeIdx);
   return mat;
 }
 

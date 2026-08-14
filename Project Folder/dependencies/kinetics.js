@@ -9,13 +9,6 @@ const vadd   = (a, b) => a.map((v, i) => v + b[i]);
 const vscale = (a, s) => a.map(v => v * s);
 const vsum   = a => a.reduce((x, y) => x + y, 0);
 
-const gauss = () => {
-  let u, v;
-  do { u = Math.random(); } while (!u);
-  do { v = Math.random(); } while (!v);
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-};
-
 const simRK4 = (grid, deriv, y0, Cfun) => {
   const out = []; let y = [...y0]; out.push(vsum(y));
   for (let i = 1; i < grid.length; i++) {
@@ -147,8 +140,8 @@ function loadCellModelConfig(idx) {
   if (ktField) ktField.style.display = (mtlEl && mtlEl.checked) ? "" : "none";
 }
 
-function sharedParamsKey(tBase, tAssoc, tDissoc, concs, noiseOn, noiseSd, drift) {
-  return JSON.stringify([tBase, tAssoc, tDissoc, concs, noiseOn, noiseSd, drift]);
+function sharedParamsKey(tBase, tAssoc, tDissoc, concs) {
+  return JSON.stringify([tBase, tAssoc, tDissoc, concs]);
 }
 
 export function simulate() {
@@ -156,10 +149,6 @@ export function simulate() {
   const tAssoc  = +$("tAssoc").value;
   const tDissoc = +$("tDissoc").value;
   const cyc     = STACK_LEAD_BASELINE_SEC + tAssoc + tDissoc;
-
-  const noiseOn = $("noiseOn").checked;
-  const noiseSd = +$("noiseSd").value || 0;
-  const drift   = +$("drift").value   || 0;
 
   const concs  = parseConcs($("concSeries").value);
   const nSpots = concs.length;
@@ -171,7 +160,7 @@ export function simulate() {
   const nFrames   = Math.round(cyc) + 1;
   const localGrid = Array.from({ length: nFrames }, (_, i) => i);
 
-  const sharedKey     = sharedParamsKey(tBase, tAssoc, tDissoc, concs, noiseOn, noiseSd, drift);
+  const sharedKey     = sharedParamsKey(tBase, tAssoc, tDissoc, concs);
   const sharedChanged = sharedKey !== lastSharedKey;
   lastSharedKey = sharedKey;
 
@@ -198,8 +187,7 @@ export function simulate() {
         return (inCyc - STACK_LEAD_BASELINE_SEC) < tAssoc ? concsM[k] : 0;
       };
 
-      let Y = simRK4(grid, engine.deriv, new Array(engine.size).fill(0), Cfun);
-      if (noiseOn) Y = Y.map((v, i) => v + noiseSd * gauss() + drift * (grid[i] / total));
+      const Y = simRK4(grid, engine.deriv, new Array(engine.size).fill(0), Cfun);
 
       const traces = concs.map((_, k) => {
         const startIdx = Math.round(tBase + k * cyc);
@@ -320,18 +308,8 @@ on("mtlOn", "change", () => {
   simulate();
 });
 
-["concSeries", "tBase", "tAssoc", "tDissoc", "noiseSd", "drift"]
+["concSeries", "tBase", "tAssoc", "tDissoc"]
   .forEach(id => on(id, "input", simulate));
-
-on("noiseOn", "change", () => {
-  const o = $("noiseOn").checked;
-  const fields = $("noiseFields");
-  if (fields) {
-    fields.style.opacity       = o ? "1" : ".45";
-    fields.style.pointerEvents = o ? "auto" : "none";
-  }
-  simulate();
-});
 
 on("genDil", "click", genDilution);
 

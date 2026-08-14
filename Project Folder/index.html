@@ -17,11 +17,10 @@
             <p class="group-title">Model generation</p>
             <div class="field">
               <label>Confluency <span class="unit"> Percentage (%)</span></label>
-              <input type="number" id="Confluency" value="5" step="1" max="100">
+              <input type="number" id="Confluency" value="30" step="1" max="100" min="0">
               <h1></h1>
-              <label>Seeding</label>
-              <label>Input Seed</label>
-              <input type="number" class="seed" id="inputSeed" value="1">
+              <label>Placement Seed</label>
+              <input type="number" class="seed" id="inputSeed" value="0">
               <button class="pri" id="genSeed">Generate Random Seed</button>
             </div>
             <div class="check">
@@ -31,6 +30,26 @@
             <div class="check">
               <input type="checkbox" id="dominance">
               <label>Allow Edge-Dominance</label>
+            </div>
+          </div>
+
+          <div class="group">
+            <p class="group-title">Noise</p>
+            <div class="section">
+              <div class="field">
+                <label class="check">
+                  <input type="checkbox" id="noiseOn"> Add Per Pixel Noise
+                </label>
+                <label class="check">
+                  <input type="checkbox" id="driftOn"> Add Drift
+                </label>
+                <label class="check">
+                  <input type="checkbox" id="NSAOn"> Add Non-specific Binding
+                </label>
+                <label>Noise Seed</label>
+                <input type="number" class="seed" id="noiseSeed" value="0">
+                <button class="pri" id="genNoiseSeed">Generate Random Seed</button>
+              </div>
             </div>
           </div>
 
@@ -48,15 +67,6 @@
               <div class="field">
                 <label>Frequency of Model Type</label>
                 <input type="number" id="frequncy" value="10" min="0" max="100">
-              </div>
-            </div>
-          </div>
-
-          <div class="group">
-            <p class="group-title">Noise</p>
-            <div class="section">
-              <div class="field">
-
               </div>
             </div>
           </div>
@@ -221,22 +231,6 @@
             </div>
           </div>
 
-          <div class="section">
-            <p class="label">Noise &amp; artifacts</p>
-            <label class="check">
-              <input type="checkbox" id="noiseOn"> add detector noise &amp; drift
-            </label>
-            <div class="grid2" id="noiseFields" style="opacity:.45; pointer-events:none">
-              <div class="field">
-                <label>noise σ <span class="unit">RU</span></label>
-                <input type="number" id="noiseSd" value="1.5" step="any">
-              </div>
-              <div class="field">
-                <label>drift <span class="unit">RU / run</span></label>
-                <input type="number" id="drift" value="2" step="any">
-              </div>
-            </div>
-          </div>
         </main>
         <aside class="sidebar">
             <h1>SPR Stack Preview</h1>
