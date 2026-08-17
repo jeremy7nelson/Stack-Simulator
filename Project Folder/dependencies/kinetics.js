@@ -239,7 +239,7 @@ function genDilution() {
   const pts = Array.from({ length: Math.max(1, Math.round(n)) }, (_, i) =>
     +(top / f ** i).toPrecision(4)
   );
-  $("concSeries").value = pts.join(", ");
+  $("concSeries").value = pts.reverse().join(", ");
   simulate();
 }
 

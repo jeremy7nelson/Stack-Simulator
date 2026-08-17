@@ -7,12 +7,16 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
         <script type="module" src="./dependencies/main.js"></script>
         <script type="module" src="./dependencies/kinetics.js"></script>
+        <script type="module" src="./dependencies/noise.js"></script>
         <script type="module" src="./dependencies/render.js"></script>
         <script type="module" src="./dependencies/download.js"></script>
     </head>
     <body>
       <div class="container">
         <main class="controls">
+          <div class="group">
+            <p class="group-title">Import Model Information</p>
+          </div>
           <div class="group">
             <p class="group-title">Model generation</p>
             <div class="field">
@@ -22,6 +26,8 @@
               <label>Placement Seed</label>
               <input type="number" class="seed" id="inputSeed" value="0">
               <button class="pri" id="genSeed">Generate Random Seed</button>
+              <label>Capacity Bins <span class="unit">fraction of Rmax, 0–1, comma/space separated</span></label>
+              <input type="text" id="capacityBin" value="0.4, 0.6, 0.8, 1">
             </div>
             <div class="check">
               <input type="checkbox" id="overlap">
@@ -42,9 +48,33 @@
                 </label>
                 <label class="check">
                   <input type="checkbox" id="driftOn"> Add Drift
+                  <div class="grid2" id="driftField" style="opacity:.45; pointer-events:none">
+                    <div class="field">
+                      <label>Drift at Cell Edges <span class="unit">0–0.3</span></label>
+                      <input type="number" id="driftEdge" value="0.15" max="0.3" min="0" step="0.1">
+                    </div>
+                  </div>
                 </label>
                 <label class="check">
                   <input type="checkbox" id="NSAOn"> Add Non-specific Binding
+                  <div class="grid2" id="nsaField" style="opacity:.45; pointer-events:none">
+                    <div class="field">
+                      <label>Background Floor <span class="unit">× specific-binding peak</span></label>
+                      <input type="number" id="nsaBackground" value="0.65" min="0" step="0.1">
+                    </div>
+                    <div class="field">
+                      <label>Added at Edges <span class="unit">× specific-binding peak</span></label>
+                      <input type="number" id="nsaEdge" value="0.65" min="0" step="0.1">
+                    </div>
+                    <div class="field">
+                      <label>Buildup Rate</label>
+                      <input type="number" id="nsaBuildup" value="4e3" min="0" step="any">
+                    </div>
+                    <div class="field">
+                      <label>Fade Rate</label>
+                      <input type="number" id="nsaFade" value="1e-4" min="0" step="any">
+                    </div>
+                  </div>
                 </label>
                 <label>Noise Seed</label>
                 <input type="number" class="seed" id="noiseSeed" value="0">
@@ -190,46 +220,50 @@
             </div>
           </div>
 
-          <div class="section">
-            <p class="label">Analyte concentrations</p>
-            <div class="field">
-              <label>Series <span class="unit">nM, comma/space separated</span></label>
-              <textarea id="concSeries">6.25, 12, 25, 50, 100, 200</textarea>
+          <div class="group">
+            <p class="group-title">Timings</p>
+            <div class="section">
+              <p class="label">Analyte concentrations</p>
+              <div class="field">
+                <label>Series <span class="unit">nM, comma/space separated</span></label>
+                <textarea id="concSeries">6.25, 12, 25, 50, 100, 200</textarea>
+              </div>
+              <div class="grid3">
+                <div class="field">
+                  <label>Top <span class="unit">nM</span></label>
+                  <input type="number" id="dilTop" value="200" step="any">
+                </div>
+                <div class="field">
+                  <label>Dilution factor</label>
+                  <input type="number" id="dilFactor" value="2" step="any">
+                </div>
+                <div class="field">
+                  <label># points</label>
+                  <input type="number" id="dilN" value="6" min="1" step="1">
+                </div>
+              </div>
+              <button class="pri" id="genDil">Generate dilution series</button>
             </div>
-            <div class="grid3">
-              <div class="field">
-                <label>Top <span class="unit">nM</span></label>
-                <input type="number" id="dilTop" value="200" step="any">
-              </div>
-              <div class="field">
-                <label>Dilution factor</label>
-                <input type="number" id="dilFactor" value="2" step="any">
-              </div>
-              <div class="field">
-                <label># points</label>
-                <input type="number" id="dilN" value="6" min="1" step="1">
+
+            <div class="section">
+              <p class="label">Injection timing</p>
+              <div class="grid3">
+                <div class="field">
+                  <label>baseline <span class="unit">s</span></label>
+                  <input type="number" id="tBase" value="30" step="any">
+                </div>
+                <div class="field">
+                  <label>assoc. <span class="unit">s</span></label>
+                  <input type="number" id="tAssoc" value="120" step="any">
+                </div>
+                <div class="field">
+                  <label>dissoc. <span class="unit">s</span></label>
+                  <input type="number" id="tDissoc" value="300" step="any">
+                </div>
               </div>
             </div>
-            <button class="pri" id="genDil">Generate dilution series</button>
           </div>
 
-          <div class="section">
-            <p class="label">Injection timing</p>
-            <div class="grid3">
-              <div class="field">
-                <label>baseline <span class="unit">s</span></label>
-                <input type="number" id="tBase" value="30" step="any">
-              </div>
-              <div class="field">
-                <label>assoc. <span class="unit">s</span></label>
-                <input type="number" id="tAssoc" value="120" step="any">
-              </div>
-              <div class="field">
-                <label>dissoc. <span class="unit">s</span></label>
-                <input type="number" id="tDissoc" value="300" step="any">
-              </div>
-            </div>
-          </div>
 
         </main>
         <aside class="sidebar">
@@ -249,9 +283,12 @@
                 </div>
                 <div class="card">
                     <div class="label">Export</div>
-                    <div class="btn-row">
-                      <button class="pri" id="downloadAll"> Download all files </button>
-                      <div id="status" class="status"></div>
+                      <div class="btn-row">
+                        <button class="pri" id="downloadAll"> Download all files </button>
+                        <div id="status" class="status"></div>
+                      </div>
+                      <h1></h1>
+                      <button class="pri" id="exportInfo">Export Model Information</button>
                     </div>
                 </div>
             </div>

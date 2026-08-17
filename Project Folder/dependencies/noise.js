@@ -1,47 +1,45 @@
 'use strict';
 
-/* ══════════════════════════════════════════════════════════
-   NOISE / DRIFT / NSA
-   Leaf module (like main.js): only imports from main.js, never
-   from kinetics.js or render.js, so both of those can import
-   from here with no circular dependency.
-
-   Ported from the "SPRm 2-D DATA SIMULATOR" reference file:
-
-     artifact[pixel][t] =   nsaRate[pixel]  * Yns[t]           (non-specific adsorption)
-                           + gDrift[pixel]  * driftCommon[t]   (baseline drift)
-                           + sigma          * hash(i,j,t)      (per-pixel jitter)
-
-   Yns[t] and driftCommon[t] are single shared time-curves (temporal —
-   computed here). nsaRate/gDrift are per-pixel weight fields derived
-   from the capacity field's edge-weight map via a Sobel gradient
-   (spatial — computeSpatialWeights() is called by render.js whenever
-   it rebuilds the capacity field). Per-pixel noise needs no shared
-   state at all: it's a pure hash of (i, j, t, seed).
-   ══════════════════════════════════════════════════════════ */
-
 import { $, on, notifyDataUpdated, STACK_LEAD_BASELINE_SEC } from './main.js';
 
-/* ── HARD-CODED PARAMETERS ─────────────────────────────────
-   Not yet exposed in the UI (only on/off + a shared seed are).
-   Calibrated in RU at Rmax≈1 — verified against our real grid/Cfun/
-   capacity-field via a standalone harness before wiring this in.
-   If per-cell-type Rmax grows much past ~1, these may need to scale
-   with it (the reference file scales everything off a single RmaxD;
-   we don't have one global Rmax anymore, so this is a flat default). */
-const SIGMA_RU = 0.10;      // per-pixel jitter sd, RU
+const SIGMA_RU = 0.02;
 
-const A_N = 0.667, B_N = 0.667;      // NSA: uniform floor / edge-gradient weight, RU
-const KA_NS = 4e3, KD_NS = 1e-4;     // NSA pseudo-kinetics (slow, low-affinity, accumulates)
+const A_N_DEFAULT = 0.65, B_N_DEFAULT = 0.65;
+const KA_NS_DEFAULT = 4e3, KD_NS_DEFAULT = 1e-4;
+const B_D_DEFAULT = 0.15;
 
-const DRIFT_D = 3.5;        // drift asymptote, RU
-const DRIFT_TAU = 500;      // exponential time constant, s
-const SIGMA_OU = 0.02;      // OU kick size, RU s^-1/2
-const THETA_OU = 0.005;     // OU mean-reversion rate, s^-1
-const DECAY_OU = true;      // OU kicks share the exp(-t/tau) envelope
-const A_D = 1, B_D = 0.15;  // drift: uniform (cancels under reference subtraction) / edge-gradient weight
+const DRIFT_D = 0.35;
+const DRIFT_TAU = 500;
+const SIGMA_OU = 0.02;
+const THETA_OU = 0.005;
+const DECAY_OU = true;
+const A_D = 1;
 
-/* ── seed + toggles ───────────────────────────────────────── */
+function readNum(id, fallback) {
+  const el = $(id);
+  const v = el ? +el.value : NaN;
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function getNsaParams() {
+  return {
+    a_n:  readNum("nsaBackground", A_N_DEFAULT),
+    b_n:  readNum("nsaEdge", B_N_DEFAULT),
+    kaNs: readNum("nsaBuildup", KA_NS_DEFAULT),
+    kdNs: readNum("nsaFade", KD_NS_DEFAULT)
+  };
+}
+
+function getDriftParams() {
+  return { b_d: readNum("driftEdge", B_D_DEFAULT) };
+}
+
+export function getSpatialParamsKey() {
+  const { a_n, b_n } = getNsaParams();
+  const { b_d } = getDriftParams();
+  return JSON.stringify([a_n, b_n, b_d]);
+}
+
 function getNoiseSeed() {
   const el = $("noiseSeed");
   const v = el ? +el.value : NaN;
@@ -53,7 +51,7 @@ export const isDriftOn      = () => { const el = $("driftOn");  return el ? el.c
 export const isNSAOn        = () => { const el = $("NSAOn");    return el ? el.checked : false; };
 
 function refreshAndNotify() {
-  cache.key = null; // force curve rebuild (seed may have changed)
+  cache.key = null;
   notifyDataUpdated();
 }
 
@@ -63,9 +61,22 @@ on("genNoiseSeed", "click", () => {
   refreshAndNotify();
 });
 on("noiseSeed", "input", refreshAndNotify);
-["noiseOn", "driftOn", "NSAOn"].forEach(id => on(id, "change", () => notifyDataUpdated()));
 
-/* ── seeded RNG + coordinate hash (mirrors render.js's mulberry32) ── */
+function toggleFieldGroup(fieldId, on_) {
+  const el = $(fieldId);
+  if (!el) return;
+  el.style.opacity       = on_ ? "1" : ".45";
+  el.style.pointerEvents = on_ ? "auto" : "none";
+}
+
+on("driftOn", "change", () => { toggleFieldGroup("driftField", isDriftOn()); notifyDataUpdated(); });
+on("NSAOn",   "change", () => { toggleFieldGroup("nsaField", isNSAOn()); notifyDataUpdated(); });
+on("noiseOn", "change", () => notifyDataUpdated());
+
+["nsaBackground", "nsaEdge", "driftEdge"].forEach(id => on(id, "input", () => notifyDataUpdated()));
+
+["nsaBuildup", "nsaFade"].forEach(id => on(id, "input", refreshAndNotify));
+
 function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
@@ -76,9 +87,6 @@ function mulberry32(seed) {
   };
 }
 
-// Uniform in (0,1) determined entirely by (i, j, t, seed) — not a sequential
-// stream, so any pixel/frame can be recomputed independently and reproducibly,
-// regardless of render order.
 function hashU01(i, j, t, seed) {
   let x = (Math.imul(i, 0x9E3779B1) ^ Math.imul(j, 0x85EBCA77)
          ^ Math.imul(t, 0xC2B2AE3D) ^ seed) >>> 0;
@@ -94,19 +102,9 @@ function hashGauss(i, j, t, seed) {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
-// Per-pixel jitter for one (pixel, local-frame) pair. Called from render.js's
-// pixel loop only when the per-pixel-noise toggle is on.
 export function pixelNoiseValue(i, j, timeIdx) {
   return SIGMA_RU * hashGauss(i, j, timeIdx, getNoiseSeed());
 }
-
-/* ── temporal curves: NSA basis (Yns) + common-mode drift ──────────
-   Same serial-injection Cfun as kinetics.js (including the 5s lead
-   baseline), re-derived here from the DOM so this stays a leaf module
-   with no import from kinetics.js. Cached per (timing, concs, seed),
-   sliced into per-concentration local-frame segments exactly like
-   kinetics.js slices region traces, so indexing lines up with
-   decodeFrame()'s (concIdx, timeIdx). */
 
 const parseConcs = str =>
   (str || "").split(/[\s,;]+/).map(Number).filter(v => Number.isFinite(v) && v > 0);
@@ -147,8 +145,9 @@ function ensureCurves() {
   const tDissoc = +$("tDissoc").value;
   const concs   = parseConcs($("concSeries") ? $("concSeries").value : "");
   const seed    = getNoiseSeed();
+  const { kaNs, kdNs } = getNsaParams();
 
-  const key = JSON.stringify([tBase, tAssoc, tDissoc, concs, seed]);
+  const key = JSON.stringify([tBase, tAssoc, tDissoc, concs, seed, kaNs, kdNs]);
   if (cache.key === key) return cache;
 
   const cyc     = STACK_LEAD_BASELINE_SEC + tAssoc + tDissoc;
@@ -159,12 +158,8 @@ function ensureCurves() {
   const concsM  = concs.map(c => c * 1e-9);
   const Cfun    = buildCfun(tBase, tAssoc, cyc, concsM);
 
-  // NSA basis curve: slow, low-affinity, nearly-irreversible — ratchets up
-  // across the run rather than tracking individual injections.
-  const Yns = simRK4Scalar(grid, (y, C) => KA_NS * C * (1 - y) - KD_NS * y, 0, Cfun);
+  const Yns = simRK4Scalar(grid, (y, C) => kaNs * C * (1 - y) - kdNs * y, 0, Cfun);
 
-  // Common-mode drift: deterministic exponential ramp to asymptote D, plus an
-  // Ornstein-Uhlenbeck wobble whose kicks shrink under the same envelope.
   const rng = mulberry32(seed ^ 0x2545F491);
   function gaussStream() {
     let u = 0, v = 0;
@@ -195,8 +190,6 @@ function ensureCurves() {
   return cache;
 }
 
-// Called once per frame render (not per pixel) — returns the two scalar
-// artifact values shared by every pixel that frame.
 export function getFrameArtifactScalars(concIdx, timeIdx) {
   const { YnsByConc, driftByConc } = ensureCurves();
   const yns      = YnsByConc[concIdx]   ? (YnsByConc[concIdx][timeIdx]   ?? 0) : 0;
@@ -204,12 +197,6 @@ export function getFrameArtifactScalars(concIdx, timeIdx) {
   return { yns, driftVal };
 }
 
-/* ── spatial weights: Sobel gradient of the capacity field's edge-weight
-   map -> ghat -> nsaRate/gDrift. Pure function; render.js calls this once
-   whenever it rebuilds the capacity field and caches the result alongside
-   regionOf/edgeWeight. Computed for every pixel (not just cell-owned ones):
-   both NSA and drift affect the whole sensor surface, not just where cells
-   are — a_n/a_d are flat floors, b_n/b_d add extra at edges. ── */
 export function computeSpatialWeights(edgeWeight, m, n) {
   const P = m * n;
   const gradMag = new Float32Array(P);
@@ -224,8 +211,6 @@ export function computeSpatialWeights(edgeWeight, m, n) {
     }
   }
 
-  // Robust normaliser: 95th percentile over nonzero gradients (the max is a
-  // one-pixel rasterisation artifact and isn't a stable normaliser).
   let p95;
   {
     const nz = [];
@@ -235,12 +220,15 @@ export function computeSpatialWeights(edgeWeight, m, n) {
     if (!(p95 > 0)) p95 = 1;
   }
 
+  const { a_n, b_n } = getNsaParams();
+  const { b_d } = getDriftParams();
+
   const nsaRate = new Float32Array(P);
   const gDrift  = new Float32Array(P);
   for (let k = 0; k < P; k++) {
-    const ghat = gradMag[k] / p95; // deliberately unclamped (can exceed 1 at strong edges)
-    nsaRate[k] = A_N + B_N * ghat;
-    gDrift[k]  = A_D + B_D * ghat;
+    const ghat = gradMag[k] / p95;
+    nsaRate[k] = a_n + b_n * ghat;
+    gDrift[k]  = A_D + b_d * ghat;
   }
   return { nsaRate, gDrift };
 }
