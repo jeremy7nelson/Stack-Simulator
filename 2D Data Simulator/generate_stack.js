@@ -9,8 +9,22 @@
 //
 //    Stack[k][t] =   s[k]        * Yhat_bin[k][t]     (specific binding)
 //                  + nsaRate[k]  * Yns[t]             (non-specific adsorption)
-//                  + g[k]        * driftCommon[t]     (baseline drift)
+//                  + gDrift[k]   * driftCommon[t]     (baseline drift)
 //                  + sigma       * hash(i, j, t)      (per-pixel jitter)
+//
+//  The two spatial weights share one purely geometric edge-proximity field:
+//
+//    nsaRate[k] = a_n + b_n * w[k]
+//    gDrift[k]  = a_d + b_d * w[k]
+//    w[k]       = exp(-d/lambdaIn)  inside a cell
+//                 exp( d/lambdaOut) outside it,  d = signed distance to the
+//                                                cell/medium interface
+//
+//  w depends only on where the cell/medium interface is — NOT on the owning
+//  cell's capacity bin. An earlier revision derived this weight from |grad s|,
+//  which made edge drift scale ~2.5x with receptor expression: a high-capacity
+//  cell drifted harder at its rim purely because it was brighter. Drift is an
+//  optical and mechanical phenomenon and must not inherit that dependence.
 //
 //  Phase 0 : integrate.  All ODE work; produces a few short time vectors.
 //  Phase 1 : build per-pixel weights.  No time axis.
@@ -134,9 +148,31 @@ const kdNs = 1e-4;     // CONTROL: numeric box. ALWAYS SHOWN. s^-1.
 // ---- Drift ------------------------------------------------------------------
 const b_d = 0.15;
 // CONTROL: numeric entry box, 0 - 0.3 suggested.  ALWAYS SHOWN.
-// Gradient-weighted drift. Set 0 for purely common-mode drift (which a cell-free
+// Edge-weighted drift. Set 0 for purely common-mode drift (which a cell-free
 // reference region then cancels exactly). Non-zero b_d is what makes drift
 // survive reference subtraction, concentrated at cluster edges.
+// Because w is bounded in (0, 1] with w = 1 exactly ON the boundary, b_d is now
+// literally "the peak fractional drift enhancement at the cell margin".
+
+// ---- Edge-proximity weight w[k] ---------------------------------------------
+// w[k] = exp(-d/lambdaIn)  inside a cell,   exp(-d/lambdaOut) outside it,
+// where d is the distance to the nearest CELL/MEDIUM interface (the boundary of
+// the UNION of all discs, not of any individual disc). This weight is purely
+// GEOMETRIC: it is independent of a cell's capacity bin, which is the point.
+// Instrument drift is an optical/mechanical phenomenon and has no reason to
+// scale with how much receptor a given cell happens to express.
+const lambdaIn = 8;
+// CONTROL: numeric entry box, px, > 0.  ALWAYS SHOWN.
+// Falloff INTO the cell. Larger values push the affected zone further under the
+// cell body. Half-width of the ring on the cell side is lambdaIn * ln2 px.
+
+const lambdaOut = 2;
+// CONTROL: numeric entry box, px, > 0.  ALWAYS SHOWN.
+// Falloff OUT into open medium. The asymmetry is deliberate and mechanism-
+// dependent: margin-localised cell processes (lamellipodial dynamics, changes in
+// the cell-substrate gap) act on the cell side and argue for lambdaIn >
+// lambdaOut, whereas optical effects extending into the medium would argue for
+// the reverse. Defaults favour the former.
 
 // ---- Seeds ------------------------------------------------------------------
 const SURFACE_SEED = 12345;   // CONTROL: numeric box, integer 0 .. 2^32-1. ALWAYS.
@@ -173,12 +209,6 @@ const decayOU = true;            // OU kicks share the exp(-t/tau) envelope
 const a_d = 1;                   // spatially uniform drift weight
 const sigma = 0.10 * RmaxD;      // per-pixel jitter sd, RU
 
-// Percentile used to normalise the gradient field. The MAXIMUM is a one-pixel
-// rasterisation artifact (pinned near a constant regardless of cell size) and
-// is NOT a stable normaliser; the 95th percentile tracks the real profile
-// gradient.  ghat can exceed 1 (typically peaking at 1.4-2.8); do not clamp.
-const GRAD_PCTILE = 0.95;
-
 
 // #############################################################################
 // ##  UTILITIES                                                              ##
@@ -202,7 +232,7 @@ function mulberry32(seed){
 // (and, later, streaming export) to reproduce the same field.
 function hashU01(i, j, t, seed){
     let x = (Math.imul(i, 0x9E3779B1) ^ Math.imul(j, 0x85EBCA77)
-           ^ Math.imul(t, 0xC2B2AE3D) ^ seed) >>> 0;
+    ^ Math.imul(t, 0xC2B2AE3D) ^ seed) >>> 0;
     x ^= x >>> 16; x = Math.imul(x, 0x7FEB352D) >>> 0;
     x ^= x >>> 15; x = Math.imul(x, 0x846CA68B) >>> 0;
     x ^= x >>> 16;
@@ -225,7 +255,51 @@ const vsum   = a=>a.reduce((x,y)=>x+y,0);
 
 function parseConcs(str){
     return str.split(/[\s,;]+/).map(s=>parseFloat(s))
-              .filter(v=>Number.isFinite(v) && v>0);
+    .filter(v=>Number.isFinite(v) && v>0);
+}
+
+// --- exact Euclidean distance transform (Felzenszwalb & Huttenlocher, 2012) --
+// Returns, for every pixel, the SQUARED Euclidean distance to the nearest pixel
+// where mask === 1. Exact, not an approximation, and O(P): two passes of a 1-D
+// lower-envelope computation, once down the columns and once along the rows.
+// Cost is ~6 ms at 320x240 and ~44 ms at 640x480 — a one-off Phase 1 expense.
+const EDT_INF = 1e20;
+
+function edt1d(f, N, d, v, z){
+    let k = 0;
+    v[0] = 0; z[0] = -Infinity; z[1] = Infinity;
+    for (let q = 1; q < N; q++){
+        let s = ((f[q] + q*q) - (f[v[k]] + v[k]*v[k])) / (2*q - 2*v[k]);
+        while (s <= z[k]){
+            k--;
+            s = ((f[q] + q*q) - (f[v[k]] + v[k]*v[k])) / (2*q - 2*v[k]);
+        }
+        k++; v[k] = q; z[k] = s; z[k+1] = Infinity;
+    }
+    k = 0;
+    for (let q = 0; q < N; q++){
+        while (z[k+1] < q) k++;
+        d[q] = (q - v[k])*(q - v[k]) + f[v[k]];
+    }
+}
+
+function edt2d(mask, m, n){
+    const L = Math.max(m, n);
+    const f = new Float64Array(L), d = new Float64Array(L);
+    const v = new Int32Array(L + 1), z = new Float64Array(L + 1);
+    const out = new Float64Array(m * n);
+    for (let k = 0; k < m*n; k++) out[k] = mask[k] ? 0 : EDT_INF;
+    for (let j = 0; j < n; j++){                    // columns
+        for (let i = 0; i < m; i++) f[i] = out[i*n + j];
+        edt1d(f, m, d, v, z);
+        for (let i = 0; i < m; i++) out[i*n + j] = d[i];
+    }
+    for (let i = 0; i < m; i++){                    // rows
+        for (let j = 0; j < n; j++) f[j] = out[i*n + j];
+        edt1d(f, n, d, v, z);
+        for (let j = 0; j < n; j++) out[i*n + j] = d[j];
+    }
+    return out;
 }
 
 
@@ -292,29 +366,29 @@ function makeDeriv(model, Rtot){
         return { size: 2,
             deriv: (y,C) => { const R1 = y[0], R2 = y[1];
                 return [ hetKa1*C*(Rm1-R1) - hetKd1*R1,
-                         hetKa2*C*(Rm2-R2) - hetKd2*R2 ]; },
-            // Both sites draw from the SAME depleted pool, so under MTL they are
-            // coupled and must be integrated jointly. Summing two independent
-            // single-site integrations instead introduces a ~2-3% error.
-            fluxCoef: (y) => ({ a: hetKa1*(Rm1-y[0]) + hetKa2*(Rm2-y[1]),
-                                b: -(hetKd1*y[0] + hetKd2*y[1]) }) };
+                hetKa2*C*(Rm2-R2) - hetKd2*R2 ]; },
+                // Both sites draw from the SAME depleted pool, so under MTL they are
+                // coupled and must be integrated jointly. Summing two independent
+                // single-site integrations instead introduces a ~2-3% error.
+                fluxCoef: (y) => ({ a: hetKa1*(Rm1-y[0]) + hetKa2*(Rm2-y[1]),
+                    b: -(hetKd1*y[0] + hetKd2*y[1]) }) };
     }
     if (model === "bivAnalyte"){
         return { size: 2,
             deriv: (y,C) => { const R1 = y[0], R2 = y[1], free = Rtot - R1 - 2*R2;
                 return [ 2*bivKa1*C*free - bivKd1*R1 - bivKa2*R1*free + 2*bivKd2*R2,
-                         2*bivKa2*R1*free - 2*bivKd2*R2 ]; },
-            // Only the first step draws from solution; crosslinking does not.
-            fluxCoef: (y) => { const free = Rtot - y[0] - 2*y[1];
-                return { a: 2*bivKa1*free, b: -bivKd1*y[0] }; } };
+                2*bivKa2*R1*free - 2*bivKd2*R2 ]; },
+                // Only the first step draws from solution; crosslinking does not.
+                fluxCoef: (y) => { const free = Rtot - y[0] - 2*y[1];
+                    return { a: 2*bivKa1*free, b: -bivKd1*y[0] }; } };
     }
     // two-state conformational change
     return { size: 2,
         deriv: (y,C) => { const AB = y[0], ABs = y[1], free = Rtot - AB - ABs;
             return [ tsKa1*C*free - tsKd1*AB - tsKa2*AB + tsKd2*ABs,
-                     tsKa2*AB - tsKd2*ABs ]; },
-        fluxCoef: (y) => { const free = Rtot - y[0] - y[1];
-            return { a: tsKa1*free, b: -tsKd1*y[0] }; } };
+            tsKa2*AB - tsKd2*ABs ]; },
+            fluxCoef: (y) => { const free = Rtot - y[0] - y[1];
+                return { a: tsKa1*free, b: -tsKd1*y[0] }; } };
 }
 
 // --- mass-transport modifier (wraps ANY model) -------------------------------
@@ -466,54 +540,68 @@ while (coveredCount / P < targetConfluence && iter < MAX_CIRCLES){
     iter++;
 }
 
-// --- gradient magnitude, Sobel ----------------------------------------------
-// Sobel is separable: [1 2 1]^T (x) [-1 0 1], i.e. a central difference smoothed
-// along the PERPENDICULAR direction. The /8 restores d/d(pixel) units: the
-// smoother sums to 4 and the differencer spans 2 pixels.
-// Chosen over a plain central difference because it attenuates isolated
-// single-pixel features (rasterisation and tessellation-seam artifacts) roughly
-// 2x while leaving coherent edges untouched.
-const gradMag = new Float32Array(P);   // border pixels remain 0 (no stencil)
-for (let i = 1; i < m-1; i++){
-    for (let j = 1; j < n-1; j++){
-        const k = i*n + j;
-        const gi = ( s[k+n-1] + 2*s[k+n] + s[k+n+1]
-                   - s[k-n-1] - 2*s[k-n] - s[k-n+1] ) / 8;
-        const gj = ( s[k-n+1] + 2*s[k+1] + s[k+n+1]
-                   - s[k-n-1] - 2*s[k-1] - s[k+n-1] ) / 8;
-        gradMag[k] = Math.sqrt(gi*gi + gj*gj);
-    }
+// --- signed distance to the cell / medium interface --------------------------
+// Two exact distance transforms give a SIGNED distance to the boundary of the
+// UNION of all discs:
+//   edt2d(covered)  -> for BACKGROUND pixels, distance to the nearest cell pixel
+//   edt2d(inverted) -> for CELL pixels, distance to the nearest background pixel
+//
+// It must be the union boundary, not individual disc outlines. A disc buried
+// inside a confluent cluster has an outline that touches no medium at all; the
+// phenomenon being modelled is localised to where cells meet open medium, so a
+// buried outline must carry no weight.
+const inverted = new Uint8Array(P);
+for (let k = 0; k < P; k++) inverted[k] = covered[k] ? 0 : 1;
+
+const dToCell = edt2d(covered,  m, n);    // squared distance, background pixels
+const dToVoid = edt2d(inverted, m, n);    // squared distance, cell pixels
+
+// HALF-PIXEL CORRECTION. The transforms measure centre-to-centre distance to
+// the nearest pixel of the opposite class, so the smallest value either side is
+// 1 px, and the true interface — which lies midway between two adjacent pixel
+// centres — would otherwise never be reached. Subtracting 0.5 px from the
+// magnitude places d = 0 at the interface itself and makes the field symmetric
+// about it. No pixel centre lands exactly on the interface, so w approaches 1
+// without attaining it; that is correct, not an error.
+const signedDist = new Float32Array(P);   // + inside a cell, - in open medium
+for (let k = 0; k < P; k++){
+    signedDist[k] = covered[k] ?  (Math.sqrt(dToVoid[k]) - 0.5)
+    : -(Math.sqrt(dToCell[k]) - 0.5);
 }
 
-// --- robust normaliser -------------------------------------------------------
-// 95th percentile over NONZERO gradients only. Roughly half the frame (flat
-// background plus flat cell interiors) has zero gradient and would otherwise
-// dominate the percentile.
-let p95;
-{
-    const nz = [];
-    for (let k = 0; k < P; k++) if (gradMag[k] > 1e-12) nz.push(gradMag[k]);
-    nz.sort((x,y) => x - y);
-    p95 = nz.length ? nz[Math.min(nz.length-1, Math.floor(GRAD_PCTILE*nz.length))] : 1;
-    if (!(p95 > 0)) p95 = 1;
+// --- edge-proximity weight ---------------------------------------------------
+// w = exp(-d/lambdaIn) inside, exp(-d/lambdaOut) outside. Both branches give
+// exp(0) = 1 at d = 0, so w is CONTINUOUS across the interface with a kink in
+// slope rather than a step — there is no seam artifact to normalise away.
+// w is bounded in (0, 1] and needs no percentile normaliser: unlike the old
+// gradient field it is already dimensionless, already scaled, and by
+// construction identical for every capacity bin.
+const w = new Float32Array(P);
+for (let k = 0; k < P; k++){
+    const d = signedDist[k];
+    w[k] = (d >= 0) ? Math.exp(-d / lambdaIn)
+    : Math.exp( d / lambdaOut);
 }
 
 // --- per-pixel weight fields -------------------------------------------------
-// ghat is dimensionless and Rmax-invariant (both |grad s| and p95 scale with
-// Rmax, so the ratio does not).
 const nsaRate = new Float32Array(P);
 const gDrift  = new Float32Array(P);
 for (let k = 0; k < P; k++){
-    const ghat = gradMag[k] / p95;
-    nsaRate[k] = a_n + b_n * ghat;   // a_n > 0 required: a pure gradient weight
-                                     // would leave the cell-free reference with
-                                     // NO background creep, contradicting the
-                                     // phenomenon being modelled.
-    gDrift[k]  = a_d + b_d * ghat;   // b_d > 0 is what survives reference
-                                     // subtraction; the a_d part cancels exactly.
+    nsaRate[k] = a_n + b_n * w[k];   // a_n > 0 required: a pure edge weight would
+    // leave the cell-free reference with NO
+    // background creep, contradicting the
+    // phenomenon being modelled.
+    gDrift[k]  = a_d + b_d * w[k];   // b_d > 0 is what survives reference
+    // subtraction; the a_d part cancels exactly.
 }
 
-console.log(`Phase 1 complete: ${circles.length} circles, confluence=${(coveredCount/P).toFixed(4)}, p95(|grad s|)=${p95.toFixed(4)}`);
+{
+    let wMax = 0, ring = 0;
+    for (let k = 0; k < P; k++){ if (w[k] > wMax) wMax = w[k]; if (w[k] > 0.5) ring++; }
+    console.log(`Phase 1 complete: ${circles.length} circles, confluence=${(coveredCount/P).toFixed(4)}, `
+    + `lambdaIn=${lambdaIn} lambdaOut=${lambdaOut}, peak w=${wMax.toFixed(4)}, `
+    + `${(100*ring/P).toFixed(1)}% of frame with w>0.5`);
+}
 
 
 // #############################################################################
@@ -544,9 +632,9 @@ for (let t = 0; t < T; t++){
             // index in range, not to change the result.
             const specific = (b < 0) ? 0 : s[k] * Yhat[b][t];
             stack[k*T + t] = specific
-                           + nsaRate[k] * yns
-                           + gDrift[k]  * dc
-                           + sigma * hashGauss(i, j, t, NOISE_SEED);
+            + nsaRate[k] * yns
+            + gDrift[k]  * dc
+            + sigma * hashGauss(i, j, t, NOISE_SEED);
         }
     }
 }
@@ -562,7 +650,7 @@ if (typeof module !== "undefined" && module.exports){
     module.exports = {
         stack, m, n, T, dt, grid,
         s, binField, capacityBins, circles,
-        gradMag, p95, nsaRate, gDrift,
+        signedDist, w, lambdaIn, lambdaOut, nsaRate, gDrift, covered,
         Yhat, Yns, driftCommon,
         perBin, model, useMTL, RmaxD
     };
