@@ -30,6 +30,52 @@
 //  Phase 1 : build per-pixel weights.  No time axis.
 //  Phase 2 : assemble the stack, frame-major.
 //
+//  ---------------------------------------------------------------------------
+//  OBJECTS AVAILABLE FOR PLOTTING  (for whoever builds the interface)
+//  ---------------------------------------------------------------------------
+//  Four objects are exported specifically so the components can be inspected
+//  separately from the assembled stack. All four are plain Float32Arrays and are
+//  final once Phase 1 completes.
+//
+//  TWO TIME SERIES — plot against `grid`, which holds the frame times in
+//  SECONDS (length T). Both are BEFORE any spatial weighting.
+//
+//    Yns          length T.  DIMENSIONLESS fractional occupancy, 0 .. ~0.15 at
+//                 the default rate constants, because it is integrated at
+//                 Rns = 1. To read it in RU, multiply by a pixel's nsaRate[k]:
+//                 the background level is a_n * Yns[t] and the strongest cell
+//                 margin is (a_n + b_n) * Yns[t]. Plotting those two bounds
+//                 together brackets the whole NSA contribution.
+//
+//    driftCommon  length T.  Already in RU — no rescaling needed. This is the
+//                 shared drift time course; pixel k receives gDrift[k] * this,
+//                 with gDrift ranging from a_d (open background) to
+//                 a_d + b_d (cell margin).
+//
+//  TWO SPATIAL FIELDS — both length m*n, row-major, index k = i*n + j, so
+//  i = row = Math.floor(k/n) and j = column = k % n. Render directly as an
+//  (m x n) image.
+//
+//    s            DIMENSIONLESS, in [0, 1]. The capacity field: 0 on background,
+//                 rising to 1 only at the rim of a full-capacity (bin 1.0) cell.
+//                 It is capacity x edge profile, so it carries BOTH how much
+//                 receptor a cell has and where on that cell you are. The RU
+//                 scale lives in Yhat, not here — a pixel's specific-binding
+//                 contribution is s[k] * Yhat[binField[k]][t], and Yhat peaks
+//                 near RmaxD. To display s in RU, multiply by RmaxD.
+//
+//    w            DIMENSIONLESS, in (0, 1]. The edge-proximity weight driving
+//                 BOTH nsaRate and gDrift. Peaks just under 1 at the cell/medium
+//                 interface and decays inward with lambdaIn, outward with
+//                 lambdaOut. Note w is deliberately INDEPENDENT of capacity, so
+//                 unlike s it looks identical around every cell — comparing the
+//                 two images side by side shows exactly that.
+//
+//  Also exported and useful for overlays: signedDist (px, + inside a cell,
+//  - in open medium, 0 at the interface), binField, covered, circles, gDrift,
+//  nsaRate, Yhat (the per-bin kinetic curves, RU, length T each).
+//  ---------------------------------------------------------------------------
+//
 //  NO USER INTERFACE.  Every parameter is hard-coded.  Parameters intended to
 //  be exposed by an interface are collected in the USER-DEFINED PARAMETERS
 //  block below and annotated with the control type they want.
@@ -174,6 +220,48 @@ const lambdaOut = 2;
 // lambdaOut, whereas optical effects extending into the medium would argue for
 // the reverse. Defaults favour the former.
 
+// ---- Drift time course ------------------------------------------------------
+// driftCommon(t) = D * (1 - exp(-t/tau)) + w_OU(t)
+// This is the SHARED time course. Every pixel receives it, scaled by gDrift[k].
+
+const D = 3.5 * RmaxD;
+// CONTROL: numeric entry box, RU.  ALWAYS SHOWN.
+// ASYMPTOTIC drift, i.e. the limit approached as t -> infinity. It is NOT the
+// amount accrued over the run: at the default tau the series reaches ~99% of D
+// by 2550 s. Expressed against RmaxD so instrument drift does not track ligand
+// density; the multiplier, not RmaxD, is the thing to vary.
+
+const tau = 500;
+// CONTROL: numeric entry box, s, > 0.  ALWAYS SHOWN.
+// EXPONENTIAL TIME CONSTANT — the pace of the approach, not its completion.
+// One tau closes 63.2% of the remaining distance, so drift is ~95% complete at
+// 3*tau and ~99% at 5*tau. Empirically anchored: tau = 500 s puts the drift RATE
+// at ~18% of its initial value by injection 3 and ~8% by injection 4, matching
+// the reported "largely settled by the third or fourth injection".
+
+const sigmaOU = 0.02 * RmaxD;
+// CONTROL: numeric entry box, RU s^-1/2.  ALWAYS SHOWN.
+// Kick size of the Ornstein-Uhlenbeck wander superimposed on the smooth
+// exponential. This is what makes the drift unfittable by a parametric baseline
+// model; without it driftCommon is a clean analytic curve anyone could subtract.
+// NOTE the RmaxD scaling: the source value (0.02 at Rmax = 1) would give a
+// 0.2 RU wander at RmaxD = 120, i.e. 0.17% of full scale and invisible.
+
+const thetaOU = 0.005;
+// CONTROL: numeric entry box, s^-1, > 0.  ALWAYS SHOWN.
+// OU mean-reversion rate. Together with sigmaOU it fixes the stationary spread
+// of the wander at sigmaOU/sqrt(2*thetaOU) — 24 RU at the defaults, twice the
+// per-pixel jitter. Raising thetaOU makes the wander faster and SMALLER; the two
+// parameters are not independent in their effect on amplitude.
+
+// ---- Per-pixel noise --------------------------------------------------------
+const sigma = 0.10 * RmaxD;
+// CONTROL: numeric entry box, RU.  ALWAYS SHOWN.
+// Standard deviation of the independent Gaussian jitter added to every pixel at
+// every frame. Expressed against RmaxD for the same reason as D: instrument
+// noise is a property of the optics, not of how much ligand is on the surface.
+// PROVISIONAL — not yet calibrated against instrument noise characterisation.
+
 // ---- Seeds ------------------------------------------------------------------
 const SURFACE_SEED = 12345;   // CONTROL: numeric box, integer 0 .. 2^32-1. ALWAYS.
 const NOISE_SEED   = 67890;   // CONTROL: numeric box, integer 0 .. 2^32-1. ALWAYS.
@@ -189,25 +277,12 @@ const edgeFloor = 0.15;          // cell centre = 15% of rim weight
 const MAX_CIRCLES = 5000;        // iteration cap, prevents a hang
 const RnsUnit = 1;               // Yns is integrated at unit capacity
 
-// Drift model.  driftCommon(t) = D*(1 - exp(-t/tau)) + w(t)
-const D       = 3.5 * RmaxD;     // asymptotic drift, RU (NOT amount accrued)
-const tau     = 500;             // EXPONENTIAL TIME CONSTANT, s.
-// tau is the pace of the approach, not its completion: one tau closes 63.2% of
-// the remaining distance, so the drift is ~95% complete at 3*tau and ~99% at
-// 5*tau. Empirically anchored: tau = 500 s puts the drift RATE at ~18% of its
-// initial value by injection 3 and ~8% by injection 4, matching the reported
-// "largely settled by the third or fourth injection".
-const sigmaOU = 0.02 * RmaxD;    // OU kick size, RU s^-1/2
-const thetaOU = 0.005;           // OU mean-reversion rate, s^-1
 const decayOU = true;            // OU kicks share the exp(-t/tau) envelope
-// NOTE: sigmaOU is scaled by RmaxD. The source value (0.02 at Rmax = 1) would
-// give a 0.2 RU wander at RmaxD = 120 -- 0.17% of full scale, invisible.
-// Scaled, the OU stationary spread is sigmaOU/sqrt(2*thetaOU) = 24 RU, twice
-// the per-pixel jitter. decayOU = true is correct here: if the drift settles by
-// injection 3-4 then its unpredictable component should settle too.
+// decayOU = true is correct for this system: if the drift settles by injection
+// 3-4, as reported, then its unpredictable component should settle too. Set
+// false only to model a wander that persists after the baseline has settled.
 
 const a_d = 1;                   // spatially uniform drift weight
-const sigma = 0.10 * RmaxD;      // per-pixel jitter sd, RU
 
 
 // #############################################################################
