@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Components of the SPRm stack — Langmuir</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0F1620; --paper:#E5E9EE; --panel:#FAFBFC; --rule:#C4CBD4; --muted:#5C6773;
+  --kin:#14508C; --nsa:#7A3E9D; --drift:#B0343F; --jit:#78838F; --gold:#9C7418;
+  --disp:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--disp);
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1150px;margin:0 auto;padding:40px 28px 72px}
+
+.eyebrow{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--muted);display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.eyebrow .dot{width:4px;height:4px;background:var(--gold);border-radius:50%}
+h1{font-weight:800;font-size:clamp(36px,5.6vw,62px);line-height:.95;
+  letter-spacing:-.035em;margin:16px 0 0;max-width:15ch}
+h1 em{font-style:normal;color:var(--muted);display:block}
+.standfirst{margin:20px 0 0;max-width:64ch;font-size:16px;color:#2A3541}
+
+.runstrip{margin-top:34px;border-top:2px solid var(--ink);border-bottom:1px solid var(--rule);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr))}
+.runstrip div{padding:12px 16px 13px;border-right:1px solid var(--rule)}
+.runstrip div:last-child{border-right:none}
+.runstrip dt{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 3px}
+.runstrip dd{margin:0;font-family:var(--mono);font-size:15px;font-weight:500}
+
+h2{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.18em;
+  text-transform:uppercase;margin:0 0 4px}
+.sub{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin:0 0 14px;
+  padding-bottom:10px;border-bottom:1px solid var(--rule)}
+section{margin-top:52px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:30px}
+@media(max-width:840px){.two{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--rule);padding:16px}
+canvas.field{display:block;width:100%;height:auto;image-rendering:pixelated;background:#0B1026}
+canvas.plot{display:block;width:100%;height:auto;background:var(--panel)}
+.caption{font-size:13.5px;color:var(--muted);margin:12px 0 0}
+.caption b{color:var(--ink);font-weight:600}
+.ckey{margin-top:10px}
+.ckey .bar{height:9px;width:100%;border:1px solid var(--rule)}
+.ckey .lab{display:flex;justify-content:space-between;font-family:var(--mono);
+  font-size:10px;color:var(--muted);margin-top:4px}
+
+.tsrow{display:grid;grid-template-columns:1fr;gap:22px}
+.obj{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink);
+  background:#DFE4EA;border:1px solid var(--rule);padding:2px 7px;border-radius:2px}
+.units{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.hdrline{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12px;margin-top:8px}
+th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--rule)}
+th{font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+th:first-child,td:first-child{text-align:left}
+td.num{font-variant-numeric:tabular-nums}
+.sw{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px}
+
+footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.75}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">
+    <span>SPRm 2-D Data Simulator</span><span class="dot"></span>
+    <span>1:1 Langmuir</span><span class="dot"></span>
+    <span>Component view · no inputs</span>
+  </div>
+
+  <h1>What the stack is made of<em>before it is assembled.</em></h1>
+
+  <p class="standfirst">
+    Every pixel in the finished stack is four terms added together: two spatial fields
+    fixed once at the start, and three time series shared by the whole frame. This page
+    shows those objects on their own, in the form the interface would plot them.
+  </p>
+
+  <div class="runstrip" id="runstrip"></div>
+
+  <!-- ══════════ SPATIAL FIELDS ══════════ -->
+  <section>
+    <h2>Two spatial fields</h2>
+    <p class="sub">Both length m·n, row-major, index k = i·n + j. Fixed after Phase 1.</p>
+    <div class="two">
+      <div>
+        <div class="panel">
+          <div class="hdrline" style="margin-bottom:10px">
+            <span class="obj">s</span>
+            <span class="units">dimensionless, [0, 1] — capacity × edge profile</span>
+          </div>
+          <canvas class="field" id="sCv" width="240" height="320"></canvas>
+          <div class="ckey">
+            <div class="bar" id="sBar"></div>
+            <div class="lab"><span>0 — background</span><span>1.0 — full-capacity rim</span></div>
+          </div>
+        </div>
+        <p class="caption">
+          Cells differ in brightness because they carry different capacity bins, and within
+          each cell brightness rises from <b>0.15×</b> at the centre to full at the free rim.
+          The RU scale is <i>not</i> here — it lives in Ŷ. A pixel's specific-binding
+          contribution is s[k] · Ŷ[t], peaking at <b id="sPeak"></b> RU.
+        </p>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="hdrline" style="margin-bottom:10px">
+            <span class="obj">w</span>
+            <span class="units">dimensionless, (0, 1] — edge proximity</span>
+          </div>
+          <canvas class="field" id="wCv" width="240" height="320"></canvas>
+          <div class="ckey">
+            <div class="bar" id="wBar"></div>
+            <div class="lab"><span>0 — far from any margin</span><span id="wHi"></span></div>
+          </div>
+        </div>
+        <p class="caption">
+          Distance to the cell/medium interface, falling off with λ<sub>in</sub> = 8 px inward
+          and λ<sub>out</sub> = 2 px outward. Note every ring looks the same:
+          <b>w is independent of capacity</b>, unlike s. That is deliberate — drift is an
+          instrument phenomenon and must not scale with what a cell expresses.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ TIME SERIES ══════════ -->
+  <section>
+    <h2>Three time series</h2>
+    <p class="sub">
+      All length T, plotted against <span class="obj">grid</span> in seconds. Shaded bands show
+      the range actually realised across the frame once each is spatially weighted.
+    </p>
+
+    <div class="tsrow">
+      <div class="panel">
+        <div class="hdrline" style="margin-bottom:10px">
+          <span><span class="obj">Yhat[bin]</span> &nbsp;<span class="units">specific binding · RU</span></span>
+          <span class="units" id="yhatNote"></span>
+        </div>
+        <canvas class="plot" id="kinCv" width="1080" height="240"></canvas>
+        <p class="caption">
+          Integrated at R<sub>max</sub> = <b id="rmaxLab"></b> RU then normalised by the bin
+          fraction, so it is already in RU and needs no rescaling. Weighted by s[k], which
+          spans 0 to 1, so the band runs from the background (zero) up to this curve.
+          Association is shaded; note the response never returns to baseline — there is no
+          regeneration, so binding accumulates across the series.
+        </p>
+      </div>
+
+      <div class="panel">
+        <div class="hdrline" style="margin-bottom:10px">
+          <span><span class="obj">Yns</span> &nbsp;<span class="units">non-specific adsorption</span></span>
+          <span class="units">dimensionless — multiply by nsaRate[k] for RU</span>
+        </div>
+        <canvas class="plot" id="nsaCv" width="1080" height="240"></canvas>
+        <p class="caption">
+          The one object that is <b>not</b> in RU: integrated at R<sub>ns</sub> = 1, it is a
+          fractional occupancy peaking at <b id="ynsPk"></b>. The band brackets the whole NSA
+          contribution — lower edge a<sub>n</sub>·Yns on open background
+          (<b id="nsaBg"></b> RU peak), upper edge (a<sub>n</sub>+b<sub>n</sub>)·Yns at a cell
+          margin (<b id="nsaEdge"></b> RU peak). Note it keeps climbing while binding falls.
+        </p>
+      </div>
+
+      <div class="panel">
+        <div class="hdrline" style="margin-bottom:10px">
+          <span><span class="obj">driftCommon</span> &nbsp;<span class="units">baseline drift · RU</span></span>
+          <span class="units">already RU — multiply by gDrift[k]</span>
+        </div>
+        <canvas class="plot" id="driftCv" width="1080" height="240"></canvas>
+        <p class="caption">
+          A saturating exponential (D = <b id="dLab"></b> RU, τ = 500 s) with an
+          Ornstein–Uhlenbeck wander that makes it unfittable by a smooth baseline model. The
+          band is narrow — gDrift runs only 1.000 to <b id="gdHi"></b> — but it is the part a
+          cell-free reference cannot remove, because the uniform component cancels and this
+          does not. Drift reaches <b id="dEnd"></b> RU, several times the binding response.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ ASSEMBLY ══════════ -->
+  <section>
+    <h2>Putting them back together</h2>
+    <p class="sub">Frames are computed on demand — the stack is never stored here.</p>
+    <div class="two">
+      <div>
+        <div class="panel">
+          <div class="hdrline" style="margin-bottom:10px">
+            <span class="units" id="tlabel"></span>
+            <span class="units">contrast stretched per frame</span>
+          </div>
+          <canvas class="field" id="frameCv" width="240" height="320"></canvas>
+          <div class="ckey"><div class="lab">
+            <span id="fLo"></span><span>frame range</span><span id="fHi"></span></div></div>
+        </div>
+        <p class="caption">
+          The assembled frame, jitter included. Because drift is common to every pixel, the
+          contrast stretch removes most of it as a side effect — which is why the cells stay
+          visible at all.
+        </p>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="hdrline" style="margin-bottom:10px">
+            <span class="units">One rim pixel · band thickness = that term's RU</span>
+            <span class="units" id="probeLab"></span>
+          </div>
+          <canvas class="plot" id="decompCv" width="560" height="300"></canvas>
+          <table id="readout">
+            <thead><tr><th>Term</th><th>weight</th><th>series now</th><th>RU now</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="caption">
+          Each shaded band is one term of the assembly equation, and its <b>thickness</b> is
+          that term's contribution — the curves themselves are running totals, not individual
+          terms. Drift sits at the bottom because it is the largest and smoothest; specific
+          binding is the thin blue band near the top, the only part carrying kinetic
+          information. Compare its thickness against the drift band beneath it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    1:1 Langmuir · k<sub>a</sub> = 1×10⁶ M⁻¹s⁻¹, k<sub>d</sub> = 1×10⁻³ s⁻¹ ·
+    six injections 6.25 → 200 nM ascending, no regeneration (single-cycle kinetics) · 320 × 240 px, Δt = 2 s ·
+    R<sub>max</sub> = R<sub>maxD</sub> = 120 RU · seeds 12345 / 67890<br>
+    Because Langmuir is linear in R<sub>max</sub>, the four capacity bins collapse to one
+    curve and only a single integration is performed. Under mass transport or the bivalent
+    analyte model they would separate and all four would be computed.<br>
+    Synthetic data. Noise, drift and NSA magnitudes are provisional and not yet calibrated
+    against instrument characterisation.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ═════════ PARAMETERS — mirror generate_stack.js, half spatial and temporal ═════ */
+const model="langmuir", useMTL=false;
+const Rmax=120, RmaxD=120;
+const ka=1e6, kd=1e-3, ktr=1e9;
+const concSeries="6.25, 12.5, 25, 50, 100, 200";
+const tBase=30, tAssoc=120, tDiss=300;
+const m=320, n=240, dt=2;
+const targetConfluence=0.50, rMin=15, rMax_=25;
+const capacityBins=[0.4,0.6,0.8,1.0];
+const a_n=80, b_n=80, kaNs=4e3, kdNs=1e-4;
+const b_d=0.15, a_d=1, lambdaIn=8, lambdaOut=2;
+const SURFACE_SEED=12345, NOISE_SEED=67890;
+const edgeFloor=0.15, MAX_CIRCLES=5000, RnsUnit=1;
+const D=3.5*RmaxD, tau=500, sigmaOU=0.02*RmaxD, thetaOU=0.005, decayOU=true;
+const sigma=0.10*RmaxD;
+
+/* ═════════ utilities ═════════ */
+function mulberry32(seed){let a=seed>>>0;return function(){a|=0;a=(a+0x6D2B79F5)|0;
+  let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;
+  return ((t^(t>>>14))>>>0)/4294967296;};}
+function hashU01(i,j,t,seed){
+  let x=(Math.imul(i,0x9E3779B1)^Math.imul(j,0x85EBCA77)^Math.imul(t,0xC2B2AE3D)^seed)>>>0;
+  x^=x>>>16;x=Math.imul(x,0x7FEB352D)>>>0;x^=x>>>15;x=Math.imul(x,0x846CA68B)>>>0;x^=x>>>16;
+  return (x>>>0)/4294967296;}
+function hashGauss(i,j,t,seed){const u=1-hashU01(i,j,t,seed);
+  const v=hashU01(i,j,t,(seed^0x5BF03635)>>>0);
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+const vadd=(a,b)=>a.map((v,i)=>v+b[i]), vscale=(a,s)=>a.map(v=>v*s),
+      vsum=a=>a.reduce((x,y)=>x+y,0);
+
+/* --- exact Euclidean distance transform (Felzenszwalb & Huttenlocher) --- */
+const EDT_INF=1e20;
+function edt1d(f,N,d,v,z){
+  let k=0; v[0]=0; z[0]=-Infinity; z[1]=Infinity;
+  for(let q=1;q<N;q++){
+    let s=((f[q]+q*q)-(f[v[k]]+v[k]*v[k]))/(2*q-2*v[k]);
+    while(s<=z[k]){k--;s=((f[q]+q*q)-(f[v[k]]+v[k]*v[k]))/(2*q-2*v[k]);}
+    k++;v[k]=q;z[k]=s;z[k+1]=Infinity;}
+  k=0;
+  for(let q=0;q<N;q++){while(z[k+1]<q)k++;d[q]=(q-v[k])*(q-v[k])+f[v[k]];}}
+function edt2d(mask,m,n){
+  const L=Math.max(m,n), f=new Float64Array(L), d=new Float64Array(L);
+  const v=new Int32Array(L+1), z=new Float64Array(L+1), out=new Float64Array(m*n);
+  for(let k=0;k<m*n;k++) out[k]=mask[k]?0:EDT_INF;
+  for(let j=0;j<n;j++){for(let i=0;i<m;i++)f[i]=out[i*n+j];edt1d(f,m,d,v,z);
+    for(let i=0;i<m;i++)out[i*n+j]=d[i];}
+  for(let i=0;i<m;i++){for(let j=0;j<n;j++)f[j]=out[i*n+j];edt1d(f,n,d,v,z);
+    for(let j=0;j<n;j++)out[i*n+j]=d[j];}
+  return out;}
+
+/* ═════════ PHASE 0 — integrate ═════════ */
+const concsNm=concSeries.split(/[\s,;]+/).map(parseFloat).filter(v=>v>0);
+const cyc=tAssoc+tDiss, N=concsNm.length, total=tBase+N*cyc;
+const npts=Math.round(total/dt);
+const grid=new Array(npts+1);
+for(let i=0;i<=npts;i++) grid[i]=+(i*dt).toFixed(4);
+const T=grid.length;
+const concsM=concsNm.map(c=>c*1e-9);
+function Cfun(t){if(t<tBase)return 0;let k=Math.floor((t-tBase)/cyc);
+  if(k>=N)k=N-1;return ((t-tBase)-k*cyc)<tAssoc?concsM[k]:0;}
+function simRK4(grid,deriv,y0,Cfun){
+  const out=[];let y=y0.slice();out.push(vsum(y));
+  for(let i=1;i<grid.length;i++){
+    const t0=grid[i-1],h=grid[i]-grid[i-1];
+    const C0=Cfun(t0),Cm=Cfun(t0+h/2),C1=Cfun(t0+h);
+    const k1=deriv(y,C0),k2=deriv(vadd(y,vscale(k1,h/2)),Cm),
+          k3=deriv(vadd(y,vscale(k2,h/2)),Cm),k4=deriv(vadd(y,vscale(k3,h)),C1);
+    y=vadd(y,vscale(vadd(vadd(k1,vscale(k2,2)),vadd(vscale(k3,2),k4)),h/6));
+    out.push(vsum(y));}
+  return out;}
+function makeDeriv(Rtot){
+  return {size:1,
+    deriv:(y,C)=>{const R=y[0];return [ka*C*(Rtot-R)-kd*R];},
+    fluxCoef:(y)=>({a:ka*(Rtot-y[0]), b:-kd*y[0]})};}
+function withTransport(base,kt){
+  return {size:base.size,
+    deriv:(y,C)=>{const {a,b}=base.fluxCoef(y);let Cs=(kt*C-b)/(kt+a);
+      if(!isFinite(Cs)||Cs<0)Cs=0;return base.deriv(y,Cs);}};}
+const perBin = useMTL || (model==="bivAnalyte");
+function integrateBin(capFraction){
+  const Rtot=Rmax*capFraction;                 // SURFACE capacity
+  let eng=makeDeriv(Rtot);
+  if(useMTL) eng=withTransport(eng,ktr);
+  const Y=simRK4(grid,eng.deriv,new Array(eng.size).fill(0),Cfun);
+  return Float32Array.from(Y, v=>v/capFraction);   // normalise by the bin fraction
+}
+const Yhat=[];
+if(perBin){ for(const c of capacityBins) Yhat.push(integrateBin(c)); }
+else { const shared=integrateBin(1.0); for(let b=0;b<capacityBins.length;b++) Yhat.push(shared); }
+
+const Yns=Float32Array.from(
+  simRK4(grid,(y,C)=>[kaNs*C*(RnsUnit-y[0])-kdNs*y[0]],[0],Cfun));
+
+const rngNoise=mulberry32(NOISE_SEED);
+function gaussStream(){let u=0,v=0;while(u===0)u=rngNoise();while(v===0)v=rngNoise();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+const driftCommon=new Float32Array(T);
+{let w0=0;
+ for(let t=0;t<T;t++){const env=decayOU?Math.exp(-t*dt/tau):1;
+   w0+=-thetaOU*w0*dt+sigmaOU*env*Math.sqrt(dt)*gaussStream();
+   driftCommon[t]=D*(1-Math.exp(-t*dt/tau))+w0;}}
+
+/* ═════════ PHASE 1 — spatial fields ═════════ */
+const P=m*n;
+const s=new Float32Array(P), binField=new Int8Array(P).fill(-1),
+      covered=new Uint8Array(P), bestPower=new Float32Array(P).fill(Infinity);
+const circles=[]; let coveredCount=0;
+const rngSurface=mulberry32(SURFACE_SEED);
+function placeOneCircle(){
+  const ci=rngSurface()*m, cj=rngSurface()*n;
+  const r=rMin+rngSurface()*(rMax_-rMin);
+  const bin=(rngSurface()*capacityBins.length)|0, cap=capacityBins[bin], r2=r*r;
+  const iLo=Math.max(0,Math.floor(ci-r)), iHi=Math.min(m-1,Math.ceil(ci+r));
+  const jLo=Math.max(0,Math.floor(cj-r)), jHi=Math.min(n-1,Math.ceil(cj+r));
+  for(let i=iLo;i<=iHi;i++){
+    for(let j=jLo;j<=jHi;j++){
+      const di=i-ci,dj=j-cj,d2=di*di+dj*dj;
+      if(d2<=r2){const k=i*n+j;
+        if(covered[k]===0){covered[k]=1;coveredCount++;}
+        const power=d2-r2;
+        if(power<bestPower[k]){bestPower[k]=power;
+          s[k]=cap*(edgeFloor+(1-edgeFloor)*(d2/r2)); binField[k]=bin;}}}}
+  circles.push({ci,cj,r,capacity:cap,binIdx:bin});}
+let iter=0;
+while(coveredCount/P<targetConfluence && iter<MAX_CIRCLES){placeOneCircle();iter++;}
+
+const inverted=new Uint8Array(P);
+for(let k=0;k<P;k++) inverted[k]=covered[k]?0:1;
+const dToCell=edt2d(covered,m,n), dToVoid=edt2d(inverted,m,n);
+const signedDist=new Float32Array(P);
+for(let k=0;k<P;k++)                       // half-pixel correction -> d = 0 at interface
+  signedDist[k]= covered[k] ? (Math.sqrt(dToVoid[k])-0.5) : -(Math.sqrt(dToCell[k])-0.5);
+const w=new Float32Array(P);
+for(let k=0;k<P;k++){const d=signedDist[k];
+  w[k]= d>=0 ? Math.exp(-d/lambdaIn) : Math.exp(d/lambdaOut);}
+const nsaRate=new Float32Array(P), gDrift=new Float32Array(P);
+for(let k=0;k<P;k++){nsaRate[k]=a_n+b_n*w[k]; gDrift[k]=a_d+b_d*w[k];}
+
+/* ═════════ probes ═════════ */
+let kRim=-1,bs=-1;
+for(let k=0;k<P;k++) if(binField[k]>=0 && s[k]>bs){bs=s[k];kRim=k;}
+let kBg=-1;
+for(let k=0;k<P;k++) if(signedDist[k]<-15){kBg=k;break;}
+
+/* ═════════ on-demand frame assembly (no stack stored) ═════════ */
+const frameBuf=new Float32Array(P);
+function buildFrame(t){
+  const dc=driftCommon[t], yns=Yns[t];
+  let k=0;
+  for(let i=0;i<m;i++){
+    for(let j=0;j<n;j++,k++){
+      const b=binField[k];
+      frameBuf[k]=(b<0?0:s[k]*Yhat[b][t])
+                 + nsaRate[k]*yns + gDrift[k]*dc
+                 + sigma*hashGauss(i,j,t,NOISE_SEED);}}
+  return frameBuf;}
+
+/* ═════════ rendering ═════════ */
+const RES=[[0,11,16,38],[.35,31,58,95],[.6,62,107,122],[.8,185,154,74],[1,245,239,224]];
+const TEAL=[[0,250,250,248],[.3,178,206,204],[.6,86,150,146],[.85,26,92,96],[1,12,44,54]];
+function ramp(stops,u){
+  u=u<0?0:(u>1?1:u);
+  for(let i=1;i<stops.length;i++){
+    if(u<=stops[i][0]){const a=stops[i-1],b=stops[i],f=(u-a[0])/(b[0]-a[0]);
+      return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];}}
+  const L=stops[stops.length-1];return [L[1],L[2],L[3]];}
+function rampCSS(stops){
+  const out=[];
+  for(let q=0;q<=20;q++){const c=ramp(stops,q/20);
+    out.push(`rgb(${c[0]|0},${c[1]|0},${c[2]|0}) ${100*q/20}%`);}
+  return "linear-gradient(to right,"+out.join(",")+")";}
+function paint(id,f,lo,hi,stops){
+  const cv=document.getElementById(id), ctx=cv.getContext("2d");
+  const img=ctx.createImageData(n,m), d=img.data, span=(hi-lo)||1;
+  for(let k=0,q=0;k<P;k++,q+=4){
+    const c=ramp(stops,(f(k)-lo)/span);
+    d[q]=c[0];d[q+1]=c[1];d[q+2]=c[2];d[q+3]=255;}
+  ctx.putImageData(img,0,0);}
+
+/* --- plotting helper: axes, injection bands, band fill, line --- */
+function plotBase(ctx,W,H,pad,yLo,yHi,yLab){
+  ctx.clearRect(0,0,W,H);
+  ctx.font="10px 'IBM Plex Mono',monospace";
+  ctx.strokeStyle="#C4CBD4";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(pad.l,pad.t);ctx.lineTo(pad.l,H-pad.b);
+  ctx.lineTo(W-pad.r,H-pad.b);ctx.stroke();
+  ctx.fillStyle="#5C6773";ctx.textAlign="right";ctx.textBaseline="middle";
+  for(let g=0;g<=4;g++){
+    const v=yLo+(yHi-yLo)*g/4, y=H-pad.b-(H-pad.t-pad.b)*g/4;
+    ctx.fillText(v.toFixed(Math.abs(yHi)<1?2:0),pad.l-6,y);
+    if(g>0){ctx.strokeStyle="#E8EBEF";ctx.beginPath();
+      ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();}}
+  ctx.textAlign="left";ctx.textBaseline="alphabetic";
+  ctx.fillText(yLab,pad.l,pad.t-6);
+  ctx.textAlign="right";ctx.fillText("2550 s",W-pad.r,H-pad.b+18);
+  ctx.textAlign="left";ctx.fillText("0",pad.l,H-pad.b+18);}
+function injBands(ctx,W,H,pad){
+  const px=t=>pad.l+(W-pad.l-pad.r)*(t/total);
+  ctx.fillStyle="rgba(20,80,140,.07)";
+  for(let q=0;q<N;q++){
+    const x0=px(tBase+q*cyc), x1=px(tBase+q*cyc+tAssoc);
+    ctx.fillRect(x0,pad.t,x1-x0,H-pad.t-pad.b);}
+  ctx.fillStyle="#5C6773";ctx.font="9px 'IBM Plex Mono',monospace";ctx.textAlign="left";
+  for(let q=0;q<N;q++) ctx.fillText(concsNm[q],px(tBase+q*cyc)+2,pad.t+9);}
+function drawSeries(cvId,series,yLo,yHi,yLab,tNow){
+  const cv=document.getElementById(cvId), ctx=cv.getContext("2d");
+  const W=cv.width,H=cv.height,pad={l:56,r:16,t:24,b:30};
+  plotBase(ctx,W,H,pad,yLo,yHi,yLab);
+  injBands(ctx,W,H,pad);
+  const X=t=>pad.l+(W-pad.l-pad.r)*(t/(T-1));
+  const Y=v=>H-pad.b-(H-pad.t-pad.b)*((v-yLo)/(yHi-yLo));
+  for(const S of series){
+    if(S.band){                                   // filled range
+      ctx.beginPath();
+      for(let t=0;t<T;t++){const x=X(t),y=Y(S.hi(t));if(t===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+      for(let t=T-1;t>=0;t--) ctx.lineTo(X(t),Y(S.lo(t)));
+      ctx.closePath();ctx.fillStyle=S.fill;ctx.fill();
+    }
+    ctx.beginPath();
+    for(let t=0;t<T;t++){const x=X(t),y=Y(S.f(t));if(t===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    ctx.strokeStyle=S.col;ctx.lineWidth=1.6;ctx.stroke();
+  }
+  ctx.strokeStyle="#9C7418";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(X(tNow),pad.t);ctx.lineTo(X(tNow),H-pad.b);ctx.stroke();}
+
+function drawDecomp(tNow){
+  const cv=document.getElementById("decompCv"), ctx=cv.getContext("2d");
+  const W=cv.width,H=cv.height,pad={l:52,r:14,t:22,b:30};
+  const yLo=DECOMP_LO,yHi=DECOMP_HI;      // measured once, so nothing clips
+  plotBase(ctx,W,H,pad,yLo,yHi,"RU · cumulative");
+  injBands(ctx,W,H,pad);
+  const X=t=>pad.l+(W-pad.l-pad.r)*(t/(T-1));
+  const Y=v=>H-pad.b-(H-pad.t-pad.b)*((v-yLo)/(yHi-yLo));
+  const k=kRim,b=binField[k],i=(k/n)|0,j=k%n;
+  // Order matters: the smooth, monotonic terms go at the BOTTOM so that the
+  // volatile specific term rides on top and every lower boundary stays legible.
+  // Stacking specific first would make each curve above it inherit its shape.
+  const layers=[
+    {col:"#B0343F",fill:"rgba(176,52,63,.30)", f:t=>gDrift[k]*driftCommon[t]},
+    {col:"#7A3E9D",fill:"rgba(122,62,157,.34)",f:t=>nsaRate[k]*Yns[t]},
+    {col:"#14508C",fill:"rgba(20,80,140,.30)", f:t=>(b<0?0:s[k]*Yhat[b][t])},
+    {col:"#78838F",fill:"rgba(120,131,143,.38)",f:t=>sigma*hashGauss(i,j,t,NOISE_SEED)}
+  ];
+  // Fill each layer as the region between successive cumulative curves, so the
+  // THICKNESS of a band is that term's contribution. Drawing outlines alone
+  // invites the eye to read each line as a term, which it is not.
+  const lower=new Float64Array(tNow+1);      // running total below current layer
+  const upper=new Float64Array(tNow+1);
+  for(const L of layers){
+    for(let t=0;t<=tNow;t++) upper[t]=lower[t]+L.f(t);
+    ctx.beginPath();
+    for(let t=0;t<=tNow;t++){const x=X(t),y=Y(upper[t]);if(t===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    for(let t=tNow;t>=0;t--) ctx.lineTo(X(t),Y(lower[t]));
+    ctx.closePath();
+    ctx.fillStyle=L.fill; ctx.fill();
+    ctx.beginPath();
+    for(let t=0;t<=tNow;t++){const x=X(t),y=Y(upper[t]);if(t===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
+    ctx.strokeStyle=L.col; ctx.lineWidth=1.3; ctx.stroke();
+    for(let t=0;t<=tNow;t++) lower[t]=upper[t];
+  }
+  ctx.strokeStyle="#9C7418";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(X(tNow),pad.t);ctx.lineTo(X(tNow),H-pad.b);ctx.stroke();}
+
+/* ═════════ static chrome ═════════ */
+(function chrome(){
+  const cells=[["Model","Langmuir"],["Window",m+" × "+n],["Δt",dt+" s"],["Frames",T],
+    ["Rmax",Rmax+" RU"],["RmaxD",RmaxD+" RU"],["Cells",circles.length],
+    ["Confluence",(100*coveredCount/P).toFixed(1)+"%"],["Curves",perBin?capacityBins.length:1]];
+  document.getElementById("runstrip").innerHTML =
+    cells.map(c=>`<div><dt>${c[0]}</dt><dd>${c[1]}</dd></div>`).join("");
+
+  paint("sCv", k=>s[k], 0, 1, RES);
+  let wMax=0; for(let k=0;k<P;k++) if(w[k]>wMax) wMax=w[k];
+  paint("wCv", k=>w[k], 0, wMax, TEAL);
+  document.getElementById("sBar").style.background=rampCSS(RES);
+  document.getElementById("wBar").style.background=rampCSS(TEAL);
+  document.getElementById("wHi").textContent=wMax.toFixed(3)+" — at the interface";
+
+  let yPk=0; for(const v of Yhat[3]) if(v>yPk) yPk=v;
+  let ynsPk=0; for(const v of Yns) if(v>ynsPk) ynsPk=v;
+  let gdHi=0; for(let k=0;k<P;k++) if(gDrift[k]>gdHi) gdHi=gDrift[k];
+  document.getElementById("sPeak").textContent=yPk.toFixed(1);
+  document.getElementById("rmaxLab").textContent=Rmax;
+  document.getElementById("ynsPk").textContent=ynsPk.toFixed(3);
+  document.getElementById("nsaBg").textContent=(a_n*ynsPk).toFixed(1);
+  document.getElementById("nsaEdge").textContent=((a_n+b_n)*ynsPk).toFixed(1);
+  document.getElementById("dLab").textContent=D.toFixed(0);
+  document.getElementById("dEnd").textContent=driftCommon[T-1].toFixed(0);
+  document.getElementById("gdHi").textContent=gdHi.toFixed(3);
+  document.getElementById("yhatNote").textContent =
+    perBin ? capacityBins.length+" curves, one per capacity bin"
+           : "all 4 bins identical — Langmuir factors, so 1 integration";
+  document.getElementById("probeLab").textContent =
+    "s = "+s[kRim].toFixed(3)+" · w = "+w[kRim].toFixed(3)+" · bin "+binField[kRim];
+})();
+
+function updateTable(t){
+  const k=kRim,b=binField[k],i=(k/n)|0,j=k%n;
+  const spec=(b<0?0:s[k]*Yhat[b][t]), nsaV=nsaRate[k]*Yns[t],
+        drV=gDrift[k]*driftCommon[t], jitV=sigma*hashGauss(i,j,t,NOISE_SEED);
+  const rows=[                                  // listed bottom-of-stack first
+    ["<span class='sw' style='background:#B0343F'></span>drift",
+      "gDrift = "+gDrift[k].toFixed(3), driftCommon[t].toFixed(1)+" RU", drV.toFixed(1)],
+    ["<span class='sw' style='background:#7A3E9D'></span>NSA",
+      "nsaRate = "+nsaRate[k].toFixed(1), Yns[t].toFixed(4), nsaV.toFixed(1)],
+    ["<span class='sw' style='background:#14508C'></span>specific",
+      "s = "+s[k].toFixed(3), Yhat[b][t].toFixed(1)+" RU", spec.toFixed(1)],
+    ["<span class='sw' style='background:#78838F'></span>jitter",
+      "σ = "+sigma.toFixed(1), "hash(i,j,t)", jitV.toFixed(1)],
+    ["<b>total</b>","","<b>"+(spec+nsaV+drV+jitV).toFixed(1)+"</b>",""]
+  ];
+  document.querySelector("#readout tbody").innerHTML =
+    rows.map(r=>`<tr><td>${r[0]}</td><td class="num">${r[1]}</td>
+      <td class="num">${r[2]}</td><td class="num">${r[3]}</td></tr>`).join("");
+}
+
+/* --- decomposition axis: measured from the data so no band is clipped ------- */
+let DECOMP_LO, DECOMP_HI;
+{
+  const k=kRim,b=binField[k],i=(k/n)|0,j=k%n;
+  let lo=Infinity,hi=-Infinity;
+  for(let t=0;t<T;t++){
+    const v=gDrift[k]*driftCommon[t] + nsaRate[k]*Yns[t]
+          + (b<0?0:s[k]*Yhat[b][t]) + sigma*hashGauss(i,j,t,NOISE_SEED);
+    if(v<lo)lo=v; if(v>hi)hi=v;
+  }
+  const padRU=(hi-lo)*0.05;
+  DECOMP_LO=Math.floor((lo-padRU)/20)*20;
+  DECOMP_HI=Math.ceil ((hi+padRU)/20)*20;
+}
+
+/* ═════════ playback ═════════ */
+let frame=0;
+const STEP=2;
+const reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let yPeak=0; for(const v of Yhat[3]) if(v>yPeak) yPeak=v;
+let ynsPeak=0; for(const v of Yns) if(v>ynsPeak) ynsPeak=v;
+let gdMax=0; for(let k=0;k<P;k++) if(gDrift[k]>gdMax) gdMax=gDrift[k];
+
+function tick(){
+  // spatial frame, contrast stretched to its own range
+  const f=buildFrame(frame);
+  let lo=Infinity,hi=-Infinity;
+  for(let k=0;k<P;k++){const v=f[k];if(v<lo)lo=v;if(v>hi)hi=v;}
+  const cv=document.getElementById("frameCv"), ctx=cv.getContext("2d");
+  const img=ctx.createImageData(n,m), d=img.data, span=(hi-lo)||1;
+  for(let k=0,q=0;k<P;k++,q+=4){
+    const c=ramp(RES,(f[k]-lo)/span);
+    d[q]=c[0];d[q+1]=c[1];d[q+2]=c[2];d[q+3]=255;}
+  ctx.putImageData(img,0,0);
+  document.getElementById("fLo").textContent=lo.toFixed(1)+" RU";
+  document.getElementById("fHi").textContent=hi.toFixed(1)+" RU";
+  document.getElementById("tlabel").textContent="t = "+(frame*dt)+" s · frame "+(frame+1)+" / "+T;
+
+  drawSeries("kinCv",[{col:"#14508C",f:t=>Yhat[3][t],band:true,fill:"rgba(20,80,140,.10)",
+    lo:()=>0, hi:t=>Yhat[3][t]}], 0, Math.ceil(yPeak/20)*20, "RU", frame);
+  drawSeries("nsaCv",[{col:"#7A3E9D",f:t=>(a_n+b_n)*Yns[t],band:true,fill:"rgba(122,62,157,.13)",
+    lo:t=>a_n*Yns[t], hi:t=>(a_n+b_n)*Yns[t]}], 0, 26, "RU (band) ", frame);
+  drawSeries("driftCv",[{col:"#B0343F",f:t=>driftCommon[t],band:true,fill:"rgba(176,52,63,.13)",
+    lo:t=>a_d*driftCommon[t], hi:t=>gdMax*driftCommon[t]}], -20, 480, "RU", frame);
+  drawDecomp(frame);
+  updateTable(frame);
+
+  frame=(frame+STEP)%T;
+  if(!reduce) requestAnimationFrame(tick);
+}
+if(reduce){ frame=Math.floor(T*0.55); tick(); } else tick();
+</script>
+</body>
+</html>
