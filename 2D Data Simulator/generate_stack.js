@@ -62,7 +62,8 @@
 //                 receptor a cell has and where on that cell you are. The RU
 //                 scale lives in Yhat, not here — a pixel's specific-binding
 //                 contribution is s[k] * Yhat[binField[k]][t], and Yhat peaks
-//                 near RmaxD. To display s in RU, multiply by RmaxD.
+//                 near Rmax (the SURFACE capacity, not the instrument reference
+//                 RmaxD). To display s in RU, multiply by Rmax.
 //
 //    w            DIMENSIONLESS, in (0, 1]. The edge-proximity weight driving
 //                 BOTH nsaRate and gDrift. Peaks just under 1 at the cell/medium
@@ -105,12 +106,35 @@ const useMTL = false;
 // Mass-transport limitation. Wraps whichever model is selected above.
 
 // ---- Surface capacity -------------------------------------------------------
+// TWO separate quantities, deliberately. Rmax describes the SURFACE; RmaxD
+// describes the INSTRUMENT. Keeping them apart is what makes signal-to-noise
+// adjustable: if a single variable set both, peak signal and sigma would scale
+// together and their ratio would be pinned no matter what value was chosen.
+
+const Rmax = 120;
+// CONTROL: numeric entry box, RU.  ALWAYS SHOWN.
+// Total SURFACE capacity in RU at capacity = 1, i.e. how much ligand is on the
+// chip. This is the only Rmax the kinetics see. Lower it to simulate a poor,
+// low-density surface; raise it for a well-loaded one.
+//   SNR scales as Rmax / RmaxD. At the defaults (equal) the peak specific signal
+//   is ~119 RU against sigma = 12 RU, so SNR ~ 10. Rmax = 12 (a tenth of RmaxD)
+//   buries the signal at SNR ~ 1 with drift 35x larger than the response;
+//   Rmax = 480 gives SNR ~ 40.
+// NOTE: the mass-transport regime is set by ktr / (ka * Rmax) using THIS value,
+// so a large change in Rmax may silently move MTL in or out of effect and ktr
+// should be reconsidered alongside it.
+
 const RmaxD = 120;
-// CONTROL: numeric entry box.  ALWAYS SHOWN.
-// Total surface capacity in RU, at capacity = 1.
-// NOTE: this is also the reference scale for sigma and D (see NOISE below), so
-// that instrument noise does NOT track ligand density. Changing RmaxD alone
-// therefore genuinely changes SNR, which is the intended behaviour.
+// CONTROL: numeric entry box, RU.  ALWAYS SHOWN.
+// INSTRUMENT reference capacity. Used only as the scale for the noise and drift
+// magnitudes (sigma, D, sigmaOU) — never by the kinetics. It represents the
+// surface loading at which those noise figures were characterised, so that
+// instrument noise does NOT track ligand density: shot noise, thermal drift and
+// fluidic baseline are properties of the optics and environment and have no
+// reason to know how much receptor is present.
+// Hold this fixed and vary Rmax to explore different surfaces on one instrument.
+// Defaults are equal, so behaviour is unchanged until they are deliberately
+// separated.
 
 // ---- Kinetic rate constants -------------------------------------------------
 // CONTROL for all of these: numeric entry boxes.
@@ -143,9 +167,11 @@ const bivKa2 = 5e-3, bivKd2 = 1e-3; // ka2 is RU^-1 s^-1 (crosslinking)
 
 const ktr = 1e9;
 // CONTROL: numeric entry box.  CONDITIONAL on useMTL === true.
-// Transport coefficient, RU M^-1 s^-1. The regime is set by ktr/(ka*Rmax), so
-// this must be re-considered whenever RmaxD changes. At RmaxD = 120 and
-// ka = 1e6: ktr = 1e9 gives a mild ~3% curve distortion; 1e8 gives ~23%.
+// Transport coefficient, RU M^-1 s^-1. The regime is set by ktr/(ka*Rmax) using
+// the SURFACE Rmax, so this must be re-considered whenever Rmax changes -- not
+// RmaxD, which the kinetics never see. At Rmax = 120 and ka = 1e6: ktr = 1e9
+// gives a mild ~3% curve distortion; 1e8 gives ~23%. Dropping Rmax tenfold
+// raises the ratio tenfold and effectively switches transport limitation off.
 
 // ---- Injection schedule -----------------------------------------------------
 const concSeries = "200, 100, 50, 25, 12.5, 6.25";
@@ -502,7 +528,7 @@ const perBin = useMTL || (model === "bivAnalyte");
 // When the model factors, all bins collapse to the same vector automatically --
 // no branch is needed, the redundancy is simply not exploited.
 function integrateBin(capFraction){
-    const Rtot = RmaxD * capFraction;
+    const Rtot = Rmax * capFraction;      // SURFACE capacity, not the noise reference
     let engine = makeDeriv(model, Rtot);
     if (useMTL) engine = withTransport(engine, ktr);
     const Y = simRK4(grid, engine.deriv, new Array(engine.size).fill(0), Cfun);
@@ -727,6 +753,6 @@ if (typeof module !== "undefined" && module.exports){
         s, binField, capacityBins, circles,
         signedDist, w, lambdaIn, lambdaOut, nsaRate, gDrift, covered,
         Yhat, Yns, driftCommon,
-        perBin, model, useMTL, RmaxD
+        perBin, model, useMTL, Rmax, RmaxD
     };
 }
