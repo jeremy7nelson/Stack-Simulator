@@ -174,7 +174,7 @@ const ktr = 1e9;
 // raises the ratio tenfold and effectively switches transport limitation off.
 
 // ---- Injection schedule -----------------------------------------------------
-const concSeries = "200, 100, 50, 25, 12.5, 6.25";
+const concSeries = "6.25, 12.5, 25, 50, 100, 200";
 // CONTROL: multi-line text box (comma/space separated).  ALWAYS SHOWN.
 // Analyte concentrations in nM, injected in the order given.
 // NOTE: this series is DESCENDING and there is NO regeneration between cycles,
