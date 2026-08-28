@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPRm Simulator — Bivalent Analyte</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0F1620;
+  --paper:#E5E9EE;
+  --panel:#FAFBFC;
+  --rule:#C4CBD4;
+  --muted:#5C6773;
+  --specific:#14508C;
+  --nsa:#7A3E9D;
+  --drift:#B0343F;
+  --jitter:#78838F;
+  --gold:#9C7418;
+  --disp:'Archivo','Helvetica Neue',Helvetica,Arial,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--disp);
+  font-size:15px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 28px 72px}
+
+/* ---- masthead ---- */
+.eyebrow{
+  font-family:var(--mono);font-size:11px;font-weight:500;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--muted);
+  display:flex;gap:14px;flex-wrap:wrap;align-items:center;
+}
+.eyebrow .dot{width:4px;height:4px;background:var(--gold);border-radius:50%}
+h1{
+  font-family:var(--disp);font-weight:800;
+  font-size:clamp(38px,6.2vw,68px);
+  line-height:.94;letter-spacing:-.035em;
+  margin:16px 0 0;max-width:14ch;
+}
+h1 em{font-style:normal;color:var(--muted);display:block}
+.standfirst{
+  margin:20px 0 0;max-width:62ch;font-size:16px;color:#2A3541;
+}
+
+/* ---- run strip ---- */
+.runstrip{
+  margin-top:34px;border-top:2px solid var(--ink);border-bottom:1px solid var(--rule);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));
+}
+.runstrip div{padding:12px 16px 13px;border-right:1px solid var(--rule)}
+.runstrip div:last-child{border-right:none}
+.runstrip dt{
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 3px;
+}
+.runstrip dd{margin:0;font-family:var(--mono);font-size:16px;font-weight:500}
+
+/* ---- section headings ---- */
+h2{
+  font-family:var(--mono);font-size:11px;font-weight:600;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--ink);
+  margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--rule);
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+}
+h2 span{color:var(--muted);font-weight:400;letter-spacing:.06em;text-transform:none}
+
+/* ---- layout ---- */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:30px;margin-top:52px}
+@media(max-width:860px){.stage{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--rule);padding:18px}
+canvas{display:block;width:100%;height:auto;image-rendering:pixelated;background:#0B1026}
+.plot{image-rendering:auto;background:var(--panel)}
+
+.caption{font-size:13px;color:var(--muted);margin:10px 0 0;max-width:56ch}
+.caption b{color:var(--ink);font-weight:600}
+
+/* ---- timeline ---- */
+.timeline{margin-top:14px}
+.tlbar{position:relative;height:26px;border:1px solid var(--rule);background:#fff;overflow:hidden}
+.inj{position:absolute;top:0;bottom:0;background:rgba(20,80,140,.14);border-left:1px solid rgba(20,80,140,.4)}
+.injlab{
+  position:absolute;top:4px;font-family:var(--mono);font-size:9px;
+  color:var(--specific);transform:translateX(3px);white-space:nowrap;
+}
+.cursor{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--gold)}
+.tlfoot{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:5px}
+
+/* ---- legend / keys ---- */
+.key{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-family:var(--mono);font-size:11px}
+.key i{display:inline-block;width:11px;height:11px;margin-right:6px;vertical-align:-1px;font-style:normal}
+.key b{font-weight:500}
+
+/* ---- readout table ---- */
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12px;margin-top:6px}
+th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--rule)}
+th{font-weight:500;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+th:first-child,td:first-child{text-align:left}
+td.num{font-variant-numeric:tabular-nums}
+
+/* ---- loader ---- */
+#loader{
+  position:fixed;inset:0;background:var(--paper);z-index:50;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+}
+#loader .lt{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+#loader .lbar{width:min(420px,70vw);height:2px;background:var(--rule);position:relative}
+#loader .lfill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink);transition:width .12s linear}
+#loader .lnum{font-family:var(--mono);font-size:34px;font-weight:500;font-variant-numeric:tabular-nums}
+.hidden{display:none!important}
+
+footer{
+  margin-top:64px;padding-top:18px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7;
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="lt">Assembling stack</div>
+  <div class="lnum" id="lpct">0%</div>
+  <div class="lbar"><div class="lfill" id="lfill"></div></div>
+  <div class="lt" id="lphase">Phase 0 · integrating</div>
+</div>
+
+<div class="wrap hidden" id="main">
+
+  <div class="eyebrow">
+    <span>SPRm 2-D Data Simulator</span><span class="dot"></span>
+    <span>Bivalent analyte</span><span class="dot"></span>
+    <span>Demonstration run · no inputs</span>
+  </div>
+
+  <h1>A synthetic sensor surface<em>observed for 42 minutes.</em></h1>
+
+  <p class="standfirst">
+    Fifty circular cells on a gold surface, a descending six-injection series with no
+    regeneration, and every pixel assembled from four separable terms. The frame below is
+    the simulated instrument output. Nothing here was measured.
+  </p>
+
+  <div class="runstrip" id="runstrip"></div>
+
+  <!-- ============ STAGE 1: the frame ============ -->
+  <div class="stage">
+    <div>
+      <h2>Simulated frame <span id="tlabel"></span></h2>
+      <div class="panel">
+        <canvas id="frameCv" width="240" height="320"></canvas>
+        <div class="timeline">
+          <div class="tlbar" id="tlbar"><div class="cursor" id="cursor"></div></div>
+          <div class="tlfoot"><span>0 s</span><span id="tlmid"></span><span>2550 s</span></div>
+        </div>
+      </div>
+      <p class="caption">
+        Contrast is stretched to each frame's own range, which is the only way the cells stay
+        visible: the drift term is common to every pixel and grows to
+        <b id="driftEnd"></b> RU, several times the binding response itself.
+        The panel opposite shows what happens without that stretch.
+      </p>
+    </div>
+
+    <div>
+      <h2>Same frame, fixed scale <span>0 – 650 RU</span></h2>
+      <div class="panel">
+        <canvas id="rawCv" width="240" height="320"></canvas>
+        <div class="key">
+          <span><i style="background:#0B1026"></i><b>0 RU</b></span>
+          <span><i style="background:#3E6B7A"></i><b>220</b></span>
+          <span><i style="background:#B99A4A"></i><b>430</b></span>
+          <span><i style="background:#F5EFE0"></i><b>650 RU</b></span>
+        </div>
+      </div>
+      <p class="caption">
+        On an absolute scale the surface washes out as drift accumulates. The cells do not
+        get brighter — everything does. This is the confound the simulator exists to
+        reproduce, and the reason a cell-free reference region is normally subtracted.
+      </p>
+    </div>
+  </div>
+
+  <!-- ============ STAGE 2: phase 1 fields ============ -->
+  <div class="stage">
+    <div>
+      <h2>Capacity field <span>s[k]</span></h2>
+      <div class="panel"><canvas id="sCv" width="240" height="320"></canvas></div>
+      <p class="caption">
+        Overlap resolved by a power diagram, so internal boundaries are straight radical
+        axes rather than arcs. Brightness rises quadratically from
+        <b>0.15×</b> capacity at each cell's centre to full capacity at its free rim.
+      </p>
+    </div>
+    <div>
+      <h2>Gradient weight <span>ĝ[k] = |∇s| / p95</span></h2>
+      <div class="panel"><canvas id="gCv" width="240" height="320"></canvas></div>
+      <p class="caption">
+        Sobel magnitude, normalised to the 95th percentile of its non-zero values. This one
+        field weights both the drift and the non-specific adsorption terms, concentrating
+        each at cluster edges and leaving flat interiors and open background untouched.
+      </p>
+    </div>
+  </div>
+
+  <!-- ============ STAGE 3: the signature — decomposition ============ -->
+  <div class="stage" style="grid-template-columns:1fr">
+    <div>
+      <h2>Four terms, one pixel <span id="probeLabel"></span></h2>
+      <div class="panel">
+        <canvas id="decompCv" class="plot" width="1120" height="380"></canvas>
+        <div class="key">
+          <span><i style="background:#14508C"></i><b>s[k] · Ŷ<sub>bin</sub>[t]</b> &nbsp;specific</span>
+          <span><i style="background:#7A3E9D"></i><b>nsaRate[k] · Y<sub>ns</sub>[t]</b> &nbsp;non-specific</span>
+          <span><i style="background:#B0343F"></i><b>g[k] · driftCommon[t]</b> &nbsp;drift</span>
+          <span><i style="background:#78838F"></i><b>σ · hash(i,j,t)</b> &nbsp;jitter</span>
+        </div>
+      </div>
+      <p class="caption">
+        The traces are cumulative: each band is one term of the assembly equation, stacked in
+        the order it appears. The specific binding signal — the only part carrying kinetic
+        information — is the thin band at the bottom.
+      </p>
+    </div>
+  </div>
+
+  <!-- ============ STAGE 4: sensorgrams ============ -->
+  <div class="stage">
+    <div>
+      <h2>Three pixels, as recorded</h2>
+      <div class="panel"><canvas id="rawTrace" class="plot" width="560" height="330"></canvas></div>
+      <p class="caption">
+        A bright rim pixel, a cell interior, and open background. All three rise together
+        because drift dominates all three.
+      </p>
+    </div>
+    <div>
+      <h2>After subtracting the background pixel</h2>
+      <div class="panel"><canvas id="refTrace" class="plot" width="560" height="330"></canvas></div>
+      <p class="caption">
+        Subtraction removes the spatially uniform part of the drift exactly. What survives is
+        the gradient-weighted remainder — largest at the rim, where ĝ is largest — plus the
+        binding curve. The residual drift is <b id="resid"></b> RU at the rim pixel.
+      </p>
+    </div>
+  </div>
+
+  <table id="readout">
+    <thead><tr><th>Probe pixel</th><th>s[k]</th><th>bin</th><th>ĝ[k]</th><th>g[k]</th><th>nsaRate[k]</th><th>Value now</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <footer>
+    Bivalent analyte · 320 × 240 px · Δt = 2 s · 1276 frames · R<sub>max</sub> = 120 RU ·
+    seeds 12345 / 67890<br>
+    Four kinetic curves are integrated, one per capacity bin, because the crosslinking term
+    is bilinear in surface species and the model therefore does not factor.<br>
+    Synthetic data. Noise and drift magnitudes are provisional and not yet calibrated
+    against instrument characterisation.
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PARAMETERS — fixed for this demonstration.
+   Deviations from the script defaults: model, m, n, dt.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const model = "bivAnalyte";
+const useMTL = false;
+const RmaxD = 120;
+const bivKa1=1e6, bivKd1=1e-2, bivKa2=5e-3, bivKd2=1e-3;
+const ktr = 1e9;
+const concSeries = "200, 100, 50, 25, 12.5, 6.25";
+const tBase=30, tAssoc=120, tDiss=300;
+const m = 320, n = 240;                 // half the default 640 × 480
+const dt = 2;                           // half the default temporal resolution
+const targetConfluence = 0.50;
+const rMin = 15, rMax = 25;
+const capacityBins = [0.4,0.6,0.8,1.0];
+const a_n = 80, b_n = 80, kaNs = 4e3, kdNs = 1e-4;
+const b_d = 0.15, a_d = 1;
+const SURFACE_SEED = 12345, NOISE_SEED = 67890;
+const edgeFloor = 0.15, MAX_CIRCLES = 5000, RnsUnit = 1;
+const D = 3.5*RmaxD, tau = 500;
+const sigmaOU = 0.02*RmaxD, thetaOU = 0.005, decayOU = true;
+const sigma = 0.10*RmaxD;
+const GRAD_PCTILE = 0.95;
+
+/* ── utilities ─────────────────────────────────────────────────────────── */
+function mulberry32(seed){
+  let a = seed>>>0;
+  return function(){
+    a|=0; a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296;
+  };
+}
+function hashU01(i,j,t,seed){
+  let x=(Math.imul(i,0x9E3779B1)^Math.imul(j,0x85EBCA77)
+       ^Math.imul(t,0xC2B2AE3D)^seed)>>>0;
+  x^=x>>>16; x=Math.imul(x,0x7FEB352D)>>>0;
+  x^=x>>>15; x=Math.imul(x,0x846CA68B)>>>0;
+  x^=x>>>16;
+  return (x>>>0)/4294967296;
+}
+function hashGauss(i,j,t,seed){
+  const u = 1-hashU01(i,j,t,seed);
+  const v = hashU01(i,j,t,(seed^0x5BF03635)>>>0);
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+const vadd=(a,b)=>a.map((v,i)=>v+b[i]);
+const vscale=(a,s)=>a.map(v=>v*s);
+const vsum=a=>a.reduce((x,y)=>x+y,0);
+
+/* ═══ PHASE 0 — integrate ═══════════════════════════════════════════════ */
+const concsNm = concSeries.split(/[\s,;]+/).map(parseFloat).filter(v=>v>0);
+const cyc = tAssoc+tDiss, N = concsNm.length, total = tBase+N*cyc;
+const npts = Math.round(total/dt);
+const grid = new Array(npts+1);
+for(let i=0;i<=npts;i++) grid[i] = +(i*dt).toFixed(4);
+const T = grid.length;
+const concsM = concsNm.map(c=>c*1e-9);
+
+function Cfun(t){
+  if(t<tBase) return 0;
+  let k=Math.floor((t-tBase)/cyc);
+  if(k>=N) k=N-1;
+  return ((t-tBase)-k*cyc)<tAssoc ? concsM[k] : 0;
+}
+function simRK4(grid,deriv,y0,Cfun){
+  const out=[]; let y=y0.slice(); out.push(vsum(y));
+  for(let i=1;i<grid.length;i++){
+    const t0=grid[i-1], h=grid[i]-grid[i-1];
+    const C0=Cfun(t0), Cm=Cfun(t0+h/2), C1=Cfun(t0+h);
+    const k1=deriv(y,C0);
+    const k2=deriv(vadd(y,vscale(k1,h/2)),Cm);
+    const k3=deriv(vadd(y,vscale(k2,h/2)),Cm);
+    const k4=deriv(vadd(y,vscale(k3,h)),C1);
+    y=vadd(y,vscale(vadd(vadd(k1,vscale(k2,2)),vadd(vscale(k3,2),k4)),h/6));
+    out.push(vsum(y));
+  }
+  return out;
+}
+// Bivalent analyte. Rmax sits inside the bilinear crosslinking term, so the
+// solution is NOT linear in Rmax and one curve per capacity bin is required.
+function makeDeriv(Rtot){
+  return { size:2,
+    deriv:(y,C)=>{ const R1=y[0], R2=y[1], free=Rtot-R1-2*R2;
+      return [ 2*bivKa1*C*free - bivKd1*R1 - bivKa2*R1*free + 2*bivKd2*R2,
+               2*bivKa2*R1*free - 2*bivKd2*R2 ]; },
+    fluxCoef:(y)=>{ const free=Rtot-y[0]-2*y[1];
+      return {a:2*bivKa1*free, b:-bivKd1*y[0]}; } };
+}
+function withTransport(base,kt){
+  return { size:base.size,
+    deriv:(y,C)=>{ const {a,b}=base.fluxCoef(y);
+      let Cs=(kt*C-b)/(kt+a);
+      if(!isFinite(Cs)||Cs<0) Cs=0;
+      return base.deriv(y,Cs); } };
+}
+// Yhat_b = Y_b / cap_b : normalise by the DIMENSIONLESS bin fraction, so that
+// s[k]·Yhat does not apply capacity twice (s[k] already carries it).
+function integrateBin(capFraction){
+  let eng = makeDeriv(RmaxD*capFraction);
+  if(useMTL) eng = withTransport(eng,ktr);
+  const Y = simRK4(grid,eng.deriv,new Array(eng.size).fill(0),Cfun);
+  return Float32Array.from(Y, v=>v/capFraction);
+}
+const perBin = useMTL || (model==="bivAnalyte");
+const Yhat = capacityBins.map(c=>integrateBin(perBin ? c : 1.0));
+
+const Yns = Float32Array.from(
+  simRK4(grid,(y,C)=>[kaNs*C*(RnsUnit-y[0])-kdNs*y[0]],[0],Cfun));
+
+const rngNoise = mulberry32(NOISE_SEED);
+function gaussStream(){
+  let u=0,v=0;
+  while(u===0) u=rngNoise();
+  while(v===0) v=rngNoise();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+const driftCommon = new Float32Array(T);
+{ let w=0;
+  for(let t=0;t<T;t++){
+    const env = decayOU ? Math.exp(-t*dt/tau) : 1;
+    w += -thetaOU*w*dt + sigmaOU*env*Math.sqrt(dt)*gaussStream();
+    driftCommon[t] = D*(1-Math.exp(-t*dt/tau)) + w;
+  }
+}
+
+/* ═══ PHASE 1 — per-pixel weights ═══════════════════════════════════════ */
+const P = m*n;
+const s = new Float32Array(P);
+const binField = new Int8Array(P).fill(-1);
+const covered = new Uint8Array(P);
+const bestPower = new Float32Array(P).fill(Infinity);
+const circles = [];
+let coveredCount = 0;
+const rngSurface = mulberry32(SURFACE_SEED);
+
+function placeOneCircle(){
+  const ci=rngSurface()*m, cj=rngSurface()*n;
+  const r=rMin+rngSurface()*(rMax-rMin);
+  const bin=(rngSurface()*capacityBins.length)|0;
+  const cap=capacityBins[bin], r2=r*r;
+  const iLo=Math.max(0,Math.floor(ci-r)), iHi=Math.min(m-1,Math.ceil(ci+r));
+  const jLo=Math.max(0,Math.floor(cj-r)), jHi=Math.min(n-1,Math.ceil(cj+r));
+  for(let i=iLo;i<=iHi;i++){
+    for(let j=jLo;j<=jHi;j++){
+      const di=i-ci, dj=j-cj, d2=di*di+dj*dj;
+      if(d2<=r2){
+        const k=i*n+j;
+        if(covered[k]===0){covered[k]=1;coveredCount++;}
+        const power=d2-r2;                    // power diagram: least power wins
+        if(power<bestPower[k]){
+          bestPower[k]=power;
+          s[k]=cap*(edgeFloor+(1-edgeFloor)*(d2/r2));
+          binField[k]=bin;
+        }
+      }
+    }
+  }
+  circles.push({ci,cj,r,capacity:cap,binIdx:bin});
+}
+let iter=0;
+while(coveredCount/P<targetConfluence && iter<MAX_CIRCLES){ placeOneCircle(); iter++; }
+
+// Sobel gradient magnitude. Separable: [1 2 1]ᵀ ⊗ [-1 0 1], /8 restores units.
+const gradMag = new Float32Array(P);
+for(let i=1;i<m-1;i++){
+  for(let j=1;j<n-1;j++){
+    const k=i*n+j;
+    const gi=(s[k+n-1]+2*s[k+n]+s[k+n+1]-s[k-n-1]-2*s[k-n]-s[k-n+1])/8;
+    const gj=(s[k-n+1]+2*s[k+1]+s[k+n+1]-s[k-n-1]-2*s[k-1]-s[k+n-1])/8;
+    gradMag[k]=Math.sqrt(gi*gi+gj*gj);
+  }
+}
+let p95;
+{ const nz=[];
+  for(let k=0;k<P;k++) if(gradMag[k]>1e-12) nz.push(gradMag[k]);
+  nz.sort((x,y)=>x-y);
+  p95 = nz.length ? nz[Math.min(nz.length-1,Math.floor(GRAD_PCTILE*nz.length))] : 1;
+  if(!(p95>0)) p95=1;
+}
+const ghat = new Float32Array(P);
+const nsaRate = new Float32Array(P);
+const gDrift = new Float32Array(P);
+for(let k=0;k<P;k++){
+  const g = gradMag[k]/p95;
+  ghat[k]=g;
+  nsaRate[k]=a_n+b_n*g;
+  gDrift[k]=a_d+b_d*g;
+}
+
+/* ── probe pixels: chosen automatically, no interaction ───────────────── */
+let kRim=-1, kInt=-1, kBg=-1;
+{ let bestS=-1;
+  for(let k=0;k<P;k++) if(binField[k]>=0 && s[k]>bestS){bestS=s[k];kRim=k;}
+  // interior: owned, low profile, low gradient
+  let bestScore=Infinity;
+  for(let k=0;k<P;k++){
+    if(binField[k]<0) continue;
+    const prof=s[k]/capacityBins[binField[k]];
+    if(prof>0.3) continue;
+    if(ghat[k]<bestScore){bestScore=ghat[k];kInt=k;}
+  }
+  // background: unowned, flattest
+  let bestG=Infinity;
+  for(let k=0;k<P;k++){
+    if(binField[k]>=0) continue;
+    const i=(k/n)|0, j=k%n;
+    if(i<2||j<2||i>m-3||j>n-3) continue;
+    if(ghat[k]<bestG){bestG=ghat[k];kBg=k;}
+  }
+  if(kInt<0) kInt=kRim;
+}
+const probes=[
+  {k:kRim,name:"Cell rim",     col:"#14508C"},
+  {k:kInt,name:"Cell interior",col:"#9C7418"},
+  {k:kBg, name:"Background",   col:"#78838F"}
+];
+
+/* ═══ PHASE 2 — assemble, frame-major, in chunks ════════════════════════ */
+const stack = new Float32Array(P*T);
+const traces = probes.map(()=>new Float32Array(T));
+
+const CHUNK = 32;                                   // frames per animation tick
+let built = 0;
+const lfill=document.getElementById("lfill"),
+      lpct =document.getElementById("lpct"),
+      lphase=document.getElementById("lphase");
+lphase.textContent="Phase 2 · assembling frames";
+
+function buildChunk(){
+  const stop=Math.min(T,built+CHUNK);
+  for(let t=built;t<stop;t++){
+    const dc=driftCommon[t], yns=Yns[t];
+    let k=0;
+    for(let i=0;i<m;i++){
+      for(let j=0;j<n;j++,k++){
+        const b=binField[k];
+        const specific = (b<0) ? 0 : s[k]*Yhat[b][t];
+        stack[k*T+t] = specific
+                     + nsaRate[k]*yns
+                     + gDrift[k]*dc
+                     + sigma*hashGauss(i,j,t,NOISE_SEED);
+      }
+    }
+    for(let p=0;p<probes.length;p++) traces[p][t]=stack[probes[p].k*T+t];
+  }
+  built=stop;
+  const pct=Math.round(100*built/T);
+  lfill.style.width=pct+"%";
+  lpct.textContent=pct+"%";
+  if(built<T) setTimeout(buildChunk,0);
+  else start();
+}
+setTimeout(buildChunk,60);
+
+/* ═══ RENDERING ═════════════════════════════════════════════════════════ */
+// Resonance ramp: indigo → slate → teal → gold → bone.
+const STOPS=[[0,11,16,38],[.35,31,58,95],[.6,62,107,122],[.8,185,154,74],[1,245,239,224]];
+function ramp(u){
+  u = u<0?0:(u>1?1:u);
+  for(let i=1;i<STOPS.length;i++){
+    if(u<=STOPS[i][0]){
+      const a=STOPS[i-1], b=STOPS[i];
+      const f=(u-a[0])/(b[0]-a[0]);
+      return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+    }
+  }
+  return [245,239,224];
+}
+function paint(cv,valueAt,lo,hi){
+  const ctx=cv.getContext("2d");
+  const img=ctx.createImageData(n,m);
+  const d=img.data, span=(hi-lo)||1;
+  for(let k=0,q=0;k<P;k++,q+=4){
+    const c=ramp((valueAt(k)-lo)/span);
+    d[q]=c[0]; d[q+1]=c[1]; d[q+2]=c[2]; d[q+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+const frameCv=document.getElementById("frameCv"),
+      rawCv  =document.getElementById("rawCv");
+const fctx=frameCv.getContext("2d"), rctx=rawCv.getContext("2d");
+const fimg=fctx.createImageData(n,m), rimg=rctx.createImageData(n,m);
+
+const RAW_LO=0, RAW_HI=650;
+function drawFrame(t){
+  // autoscaled pass needs the frame range first
+  let lo=Infinity, hi=-Infinity;
+  for(let k=0;k<P;k++){ const v=stack[k*T+t]; if(v<lo)lo=v; if(v>hi)hi=v; }
+  const span=(hi-lo)||1, rspan=RAW_HI-RAW_LO;
+  const fd=fimg.data, rd=rimg.data;
+  for(let k=0,q=0;k<P;k++,q+=4){
+    const v=stack[k*T+t];
+    const a=ramp((v-lo)/span);
+    fd[q]=a[0]; fd[q+1]=a[1]; fd[q+2]=a[2]; fd[q+3]=255;
+    const b=ramp((v-RAW_LO)/rspan);
+    rd[q]=b[0]; rd[q+1]=b[1]; rd[q+2]=b[2]; rd[q+3]=255;
+  }
+  fctx.putImageData(fimg,0,0);
+  rctx.putImageData(rimg,0,0);
+}
+
+/* ── line plot helper ─────────────────────────────────────────────────── */
+function plotAxes(ctx,W,H,pad,yLo,yHi,yLab){
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle="#C4CBD4"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(pad.l,pad.t); ctx.lineTo(pad.l,H-pad.b); ctx.lineTo(W-pad.r,H-pad.b); ctx.stroke();
+  ctx.fillStyle="#5C6773";
+  ctx.font="10px 'IBM Plex Mono',monospace";
+  ctx.textAlign="right"; ctx.textBaseline="middle";
+  for(let g=0;g<=4;g++){
+    const v=yLo+(yHi-yLo)*g/4;
+    const y=H-pad.b-(H-pad.t-pad.b)*g/4;
+    ctx.fillText(v.toFixed(0),pad.l-6,y);
+    if(g>0){ ctx.strokeStyle="#E8EBEF"; ctx.beginPath();
+      ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); }
+  }
+  ctx.textAlign="left"; ctx.textBaseline="alphabetic";
+  ctx.fillText(yLab,pad.l,pad.t-7);
+  ctx.textAlign="right";
+  ctx.fillText("time (s) →",W-pad.r,H-pad.b+22);
+  ctx.textAlign="left";
+  ctx.fillText("0",pad.l,H-pad.b+22);
+}
+function injBands(ctx,W,H,pad){
+  const px=(t)=>pad.l+(W-pad.l-pad.r)*(t/total);
+  ctx.fillStyle="rgba(20,80,140,.07)";
+  for(let q=0;q<N;q++){
+    const x0=px(tBase+q*cyc), x1=px(tBase+q*cyc+tAssoc);
+    ctx.fillRect(x0,pad.t,x1-x0,H-pad.t-pad.b);
+  }
+}
+
+const decompCv=document.getElementById("decompCv");
+const dctx=decompCv.getContext("2d");
+function drawDecomp(tNow){
+  const W=decompCv.width, H=decompCv.height, pad={l:56,r:18,t:26,b:34};
+  const k=kRim, b=binField[k];
+  const yLo=0, yHi=680;
+  plotAxes(dctx,W,H,pad,yLo,yHi,"RU · cumulative");
+  injBands(dctx,W,H,pad);
+  const X=(t)=>pad.l+(W-pad.l-pad.r)*(t/(T-1));
+  const Y=(v)=>H-pad.b-(H-pad.t-pad.b)*((v-yLo)/(yHi-yLo));
+  const i=(k/n)|0, j=k%n;
+  const layers=[
+    {col:"#14508C", f:(t)=> (b<0?0:s[k]*Yhat[b][t]) },
+    {col:"#7A3E9D", f:(t)=> nsaRate[k]*Yns[t] },
+    {col:"#B0343F", f:(t)=> gDrift[k]*driftCommon[t] },
+    {col:"#78838F", f:(t)=> sigma*hashGauss(i,j,t,NOISE_SEED) }
+  ];
+  const acc=new Float64Array(tNow+1);
+  for(const L of layers){
+    dctx.beginPath();
+    for(let t=0;t<=tNow;t++){
+      acc[t]+=L.f(t);
+      const x=X(t), y=Y(acc[t]);
+      if(t===0) dctx.moveTo(x,y); else dctx.lineTo(x,y);
+    }
+    dctx.strokeStyle=L.col; dctx.lineWidth=1.4; dctx.stroke();
+  }
+  dctx.strokeStyle="#9C7418"; dctx.lineWidth=1;
+  dctx.beginPath(); dctx.moveTo(X(tNow),pad.t); dctx.lineTo(X(tNow),H-pad.b); dctx.stroke();
+}
+
+const rawTrace=document.getElementById("rawTrace"), refTrace=document.getElementById("refTrace");
+function drawTraces(tNow){
+  for(const [cv,mode] of [[rawTrace,"raw"],[refTrace,"ref"]]){
+    const ctx=cv.getContext("2d"), W=cv.width, H=cv.height, pad={l:52,r:14,t:24,b:34};
+    const yLo = mode==="raw" ? 0 : -30;
+    const yHi = mode==="raw" ? 680 : 190;
+    plotAxes(ctx,W,H,pad,yLo,yHi, mode==="raw" ? "RU" : "RU (referenced)");
+    injBands(ctx,W,H,pad);
+    const X=(t)=>pad.l+(W-pad.l-pad.r)*(t/(T-1));
+    const Y=(v)=>H-pad.b-(H-pad.t-pad.b)*((v-yLo)/(yHi-yLo));
+    probes.forEach((p,idx)=>{
+      if(mode==="ref" && idx===2) return;         // reference minus itself is 0
+      ctx.beginPath();
+      for(let t=0;t<=tNow;t++){
+        const v = mode==="raw" ? traces[idx][t] : traces[idx][t]-traces[2][t];
+        const x=X(t), y=Y(v);
+        if(t===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle=p.col; ctx.lineWidth=1.4; ctx.stroke();
+    });
+    ctx.strokeStyle="#9C7418"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(X(tNow),pad.t); ctx.lineTo(X(tNow),H-pad.b); ctx.stroke();
+  }
+}
+
+/* ── static chrome ────────────────────────────────────────────────────── */
+function buildChrome(){
+  const rs=document.getElementById("runstrip");
+  const cells=[
+    ["Model","Bivalent"],
+    ["Window",m+" × "+n],
+    ["Δt",dt+" s"],
+    ["Frames",T],
+    ["Rmax",RmaxD+" RU"],
+    ["Cells",circles.length],
+    ["Confluence",(100*coveredCount/P).toFixed(1)+"%"],
+    ["Curves",capacityBins.length]
+  ];
+  rs.innerHTML=cells.map(c=>`<div><dt>${c[0]}</dt><dd>${c[1]}</dd></div>`).join("");
+
+  const bar=document.getElementById("tlbar");
+  for(let q=0;q<N;q++){
+    const x0=100*(tBase+q*cyc)/total, w=100*tAssoc/total;
+    const d=document.createElement("div");
+    d.className="inj"; d.style.left=x0+"%"; d.style.width=w+"%";
+    bar.appendChild(d);
+    const l=document.createElement("div");
+    l.className="injlab"; l.style.left=x0+"%"; l.textContent=concsNm[q];
+    bar.appendChild(l);
+  }
+  document.getElementById("tlmid").textContent="six injections, no regeneration";
+  document.getElementById("driftEnd").textContent=driftCommon[T-1].toFixed(0);
+  document.getElementById("probeLabel").textContent=
+    "cell rim · s[k] = "+s[kRim].toFixed(3)+" · bin "+binField[kRim];
+
+  paint(document.getElementById("sCv"), k=>s[k], 0, 1);
+  let gMax=0; for(let k=0;k<P;k++) if(ghat[k]>gMax) gMax=ghat[k];
+  paint(document.getElementById("gCv"), k=>ghat[k], 0, gMax);
+
+  const resid=(traces[0][T-1]-traces[2][T-1])
+            - (s[kRim]*Yhat[binField[kRim]][T-1] + nsaRate[kRim]*Yns[T-1]
+             - nsaRate[kBg]*Yns[T-1]);
+  document.getElementById("resid").textContent=Math.abs(resid).toFixed(0);
+}
+
+function updateTable(t){
+  const tb=document.querySelector("#readout tbody");
+  tb.innerHTML=probes.map(p=>{
+    const b=binField[p.k];
+    return `<tr>
+      <td>${p.name}</td>
+      <td class="num">${s[p.k].toFixed(3)}</td>
+      <td class="num">${b<0?"—":b}</td>
+      <td class="num">${ghat[p.k].toFixed(3)}</td>
+      <td class="num">${gDrift[p.k].toFixed(3)}</td>
+      <td class="num">${nsaRate[p.k].toFixed(1)}</td>
+      <td class="num">${stack[p.k*T+t].toFixed(1)} RU</td>
+    </tr>`;
+  }).join("");
+}
+
+/* ── playback loop ───────────────────────────────────────────────────── */
+let frame=0;
+const STEP=2;
+const reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function tick(){
+  drawFrame(frame);
+  drawDecomp(frame);
+  drawTraces(frame);
+  document.getElementById("cursor").style.left=(100*frame/(T-1))+"%";
+  document.getElementById("tlabel").textContent=
+    "t = "+(frame*dt)+" s · frame "+(frame+1)+" / "+T;
+  updateTable(frame);
+  frame=(frame+STEP)%T;
+  if(!reduce) requestAnimationFrame(tick);
+}
+function start(){
+  document.getElementById("loader").classList.add("hidden");
+  document.getElementById("main").classList.remove("hidden");
+  buildChrome();
+  if(reduce){ frame=Math.floor(T*0.55); tick(); }   // one static late frame
+  else tick();
+}
+</script>
+</body>
+</html>
