@@ -96,10 +96,14 @@ function hashU01(i, j, t, seed) {
   return (x >>> 0) / 4294967296;
 }
 
+const HASH_GAUSS_OFFSETS = [0x5BF03635, 0x1B873593, 0x3AC5D673, 0x27D4EB2F];
+
 function hashGauss(i, j, t, seed) {
-  const u = 1 - hashU01(i, j, t, seed);
-  const v = hashU01(i, j, t, (seed ^ 0x5BF03635) >>> 0);
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  let sum = 0;
+  for (let k = 0; k < HASH_GAUSS_OFFSETS.length; k++) {
+    sum += hashU01(i, j, t, (seed ^ HASH_GAUSS_OFFSETS[k]) >>> 0);
+  }
+  return (sum - 2) * 1.7320508075688772;
 }
 
 export function pixelNoiseValue(i, j, timeIdx) {
