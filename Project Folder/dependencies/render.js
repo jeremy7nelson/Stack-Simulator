@@ -1,13 +1,13 @@
 'use strict';
 
 import {
-  $, on, state, onDataUpdated, fmtConc, IMG_W, IMG_H, MAX16
+  $, on, state, onDataUpdated, notifyDataUpdated, fmtConc, IMG_W, IMG_H, MAX16
 } from './main.js';
 import { simulate } from './kinetics.js';
 import {
   isPixelNoiseOn, isDriftOn, isNSAOn,
   computeSpatialWeights, getFrameArtifactScalars, pixelNoiseValue,
-  getSpatialParamsKey
+  getPixelNoiseParams, getSpatialParamsKey
 } from './noise.js';
 
 function mulberry32(seed) {
@@ -41,7 +41,7 @@ function getCapacityBins() {
   return bins.length ? bins : [1];
 }
 
-on("capacityBin", "input", () => refreshCapacityFieldIfNeeded());
+on("capacityBin", "input", () => { refreshCapacityFieldIfNeeded(); notifyDataUpdated(); });
 
 function generateCapacityField({
   m, n,
@@ -112,9 +112,9 @@ function generateCapacityField({
     iter++;
   }
 
-  const { nsaRate, gDrift } = computeSpatialWeights(edgeWeight, m, n);
+  const { nsaRate, gDrift, w, signedDist } = computeSpatialWeights(covered, m, n);
 
-  return { regionOf, edgeWeight, capacityOf, nsaRate, gDrift, circles, achievedConfluence: coveredCount / (m * n) };
+  return { regionOf, edgeWeight, capacityOf, nsaRate, gDrift, w, signedDist, covered, circles, achievedConfluence: coveredCount / (m * n) };
 }
 
 function circleOverlapsAny(ci, cj, r, circles) {
@@ -136,8 +136,8 @@ function allowEdgeDominance() {
   return el ? el.checked : false;
 }
 
-on("overlap", "change", () => refreshCapacityFieldIfNeeded());
-on("dominance", "change", () => refreshCapacityFieldIfNeeded());
+on("overlap", "change", () => { refreshCapacityFieldIfNeeded(); notifyDataUpdated(); });
+on("dominance", "change", () => { refreshCapacityFieldIfNeeded(); notifyDataUpdated(); });
 
 function getSeed() {
   const el = $("inputSeed");
@@ -149,9 +149,10 @@ on("genSeed", "click", () => {
   const el = $("inputSeed");
   if (el) el.value = Math.floor(Math.random() * 2 ** 32);
   refreshCapacityFieldIfNeeded();
+  notifyDataUpdated();
 });
 
-on("inputSeed", "input", refreshCapacityFieldIfNeeded);
+on("inputSeed", "input", () => { refreshCapacityFieldIfNeeded(); notifyDataUpdated(); });
 
 const CIRCLE_R_MIN = 30, CIRCLE_R_MAX = 50;
 
@@ -202,7 +203,7 @@ function refreshCapacityFieldIfNeeded() {
   lastFieldSpatialKey = spatialKey;
 }
 
-on("Confluency", "input", refreshCapacityFieldIfNeeded);
+on("Confluency", "input", () => { refreshCapacityFieldIfNeeded(); notifyDataUpdated(); });
 
 function updateStackImage() {
   refreshCapacityFieldIfNeeded();
@@ -234,7 +235,7 @@ export function decodeFrame(globalFrame) {
   };
 }
 
-function regionBrightness16(rg, concIdx, timeIdx) {
+export function regionBrightness16(rg, concIdx, timeIdx) {
   if (concIdx >= rg.traces.length) return 0;
   const { globalMin, globalMax } = state.parsed;
   const denom = (globalMax - globalMin) || 1;
@@ -255,6 +256,9 @@ function compositeCapacityField(mat, b16ByRegion, concIdx, timeIdx) {
   let yns = 0, driftVal = 0;
   if (nsaOn || driftOn) ({ yns, driftVal } = getFrameArtifactScalars(concIdx, timeIdx));
 
+  let pxSigma = 0, pxSeed = 0;
+  if (pxOn) ({ sigma: pxSigma, seed: pxSeed } = getPixelNoiseParams());
+
   const n = IMG_W;
   for (let k = 0; k < mat.length; k++) {
     const rIdx = regionOf[k];
@@ -264,7 +268,7 @@ function compositeCapacityField(mat, b16ByRegion, concIdx, timeIdx) {
     if (driftOn) v += gDrift[k]  * driftVal * MAX16;
     if (pxOn) {
       const i = (k / n) | 0, j = k % n;
-      v += pixelNoiseValue(i, j, timeIdx) * MAX16;
+      v += pixelNoiseValue(i, j, timeIdx, pxSigma, pxSeed) * MAX16;
     }
 
     v = Math.round(v);
@@ -364,6 +368,14 @@ on("play", "click", () => {
   if (btn) btn.textContent = playing ? "Pause" : "Play";
   if (playing) stepFrame(); else cancelAnimationFrame(raf);
 });
+
+export function pausePlayback() {
+  if (!playing) return;
+  playing = false;
+  const btn = $("play");
+  if (btn) btn.textContent = "Play";
+  if (raf) cancelAnimationFrame(raf);
+}
 
 onDataUpdated(updateStackImage);
 

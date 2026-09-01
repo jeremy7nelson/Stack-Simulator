@@ -1,8 +1,3 @@
-/* ============================================================
-   combined.css — cleaned up for the SPR Stack Preview tool
-   ============================================================ */
-
-/* ---------- design tokens ---------- */
 :root {
   --paper: #f4f1ea;
   --panel: #fffdf8;
@@ -18,11 +13,9 @@
   --radius: 10px;
 }
 
-/* ---------- reset ---------- */
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 
-/* ---------- base ---------- */
 body {
   font-family: "IBM Plex Sans", sans-serif;
   background:
@@ -37,10 +30,9 @@ body {
 
 h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
 
-/* ---------- layout ---------- */
 .container {
   display: flex;
-  align-items: flex-start; /* keep each column's own height so .sidebar isn't stretched full-length — required for position:sticky to have room to follow scroll */
+  align-items: flex-start;
   gap: 20px;
   padding: 20px;
 }
@@ -56,11 +48,10 @@ h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
   position: sticky;
   top: 20px;
   height: fit-content;
-  background-color: #f4f4f4;
-  padding: 10;
+  background-color: var(--paper);
+  padding: 10px;
 }
 
-/* ---------- section ---------- */
 .section { margin-bottom: 24px; }
 
 .section > .label {
@@ -83,7 +74,6 @@ h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
   background: var(--line-soft);
 }
 
-
 .group {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -103,10 +93,8 @@ h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
   border-bottom: 1px solid var(--line-soft);
 }
 
-
 .group > .section:last-child { margin-bottom: 6px; }
 
-/* ---------- card ---------- */
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -115,7 +103,6 @@ h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
   margin-bottom: 1rem;
 }
 
-/* ---------- generic label ---------- */
 .label {
   font-size: 11px;
   font-weight: 600;
@@ -131,9 +118,9 @@ h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
   color: var(--muted);
   margin-top: 4px;
 }
-/* ---------- form fields ---------- */
-.field { 
-  margin-bottom: 10px;  
+
+.field {
+  margin-bottom: 10px;
 }
 
 .field label {
@@ -141,14 +128,12 @@ h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
   font-size: 12.5px;
   color: var(--muted);
   margin-bottom: 3px;
-  
 }
 
 .seed::-webkit-inner-spin-button,
 .seed::-webkit-outer-spin-button {
   -webkit-appearance: none;
 }
-
 
 .field label .unit {
   font-family: "IBM Plex Mono", monospace;
@@ -189,7 +174,6 @@ select {
   padding-right: 30px;
 }
 
-/* ---------- range row ---------- */
 .row {
   display: flex;
   align-items: center;
@@ -215,11 +199,9 @@ select {
   text-align: right;
 }
 
-/* ---------- grid helpers ---------- */
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9px; }
 
-/* ---------- buttons ---------- */
 .btn {
   font-family: "IBM Plex Mono", monospace;
   font-size: 12px;
@@ -240,7 +222,6 @@ select {
 .btn.ghost { background: transparent; color: var(--accent); }
 .btn.ghost:hover { background: var(--accent-soft); color: var(--accent-deep); }
 
-/* native <button> elements */
 button {
   padding: 8px 18px;
   font-size: 13px;
@@ -265,7 +246,6 @@ button.pri:hover:not(:disabled) { opacity: 0.88; }
 
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* ---------- checkbox ---------- */
 .check {
   display: flex;
   align-items: center;
@@ -278,10 +258,8 @@ button.pri:hover:not(:disabled) { opacity: 0.88; }
 
 .check input { width: auto; accent-color: var(--accent); }
 
-/* ---------- hint text ---------- */
 .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
 
-/* ---------- canvas / frame preview ---------- */
 canvas {
   display: block;
   border: 1px solid var(--line);
@@ -297,7 +275,6 @@ canvas {
   text-align: center;
 }
 
-/* ---------- progress / status (used by download script) ---------- */
 .progress-bar {
   height: 3px;
   background: var(--line);
@@ -315,10 +292,109 @@ canvas {
 
 .status { font-size: 12px; color: var(--muted); margin-top: 6px; }
 
-/* ---------- results panel ---------- */
 #results { display: none; }
 
-/* ---------- responsive ---------- */
+.tab-bar {
+  display: flex;
+  gap: 8px;
+  padding: 2rem 2rem 0;
+}
+
+.tab-btn {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 9px 18px;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.tab-btn:hover { background: var(--accent-soft); color: var(--accent-deep); }
+
+.tab-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.plots-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px;
+}
+
+.plots-row { display: flex; gap: 20px; flex-wrap: wrap; }
+
+.plot-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.plot-card canvas { margin: 0 auto; }
+
+#plot-yns, #plot-drift, #plot-decomp { width: 100%; max-width: 640px; height: 220px; }
+#plot-decomp { height: 260px; }
+#plot-s, #plot-w { width: 240px; height: 320px; }
+
+.plot-caption {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 8px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.ckey { margin-top: 10px; }
+
+.ckey .bar {
+  height: 8px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+
+.ckey .lab {
+  display: flex;
+  justify-content: space-between;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+#decomp-readout {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  margin-top: 12px;
+}
+
+#decomp-readout th, #decomp-readout td {
+  text-align: right;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+#decomp-readout th {
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#decomp-readout th:first-child, #decomp-readout td:first-child { text-align: left; }
+
 @media (max-width: 880px) {
   .container { flex-direction: column; }
   .controls { border-right: none; border-bottom: 1px solid var(--line); }

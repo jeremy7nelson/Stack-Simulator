@@ -2,18 +2,18 @@
 
 import { $, on, notifyDataUpdated, STACK_LEAD_BASELINE_SEC } from './main.js';
 
-const SIGMA_RU = 0.02;
-
 const A_N_DEFAULT = 0.65, B_N_DEFAULT = 0.65;
 const KA_NS_DEFAULT = 4e3, KD_NS_DEFAULT = 1e-4;
 const B_D_DEFAULT = 0.15;
-
-const DRIFT_D = 0.35;
-const DRIFT_TAU = 500;
-const SIGMA_OU = 0.02;
-const THETA_OU = 0.005;
+const D_DEFAULT = 0.35;
+const TAU_DEFAULT = 500;
+const SIGMA_OU_DEFAULT = 0.002;
+const THETA_OU_DEFAULT = 0.005;
+const SIGMA_DEFAULT = 0.01;
+const LAMBDA_IN_DEFAULT = 8;
+const LAMBDA_OUT_DEFAULT = 2;
 const DECAY_OU = true;
-const A_D = 1;
+export const A_D = 1;
 
 function readNum(id, fallback) {
   const el = $(id);
@@ -21,7 +21,7 @@ function readNum(id, fallback) {
   return Number.isFinite(v) ? v : fallback;
 }
 
-function getNsaParams() {
+export function getNsaParams() {
   return {
     a_n:  readNum("nsaBackground", A_N_DEFAULT),
     b_n:  readNum("nsaEdge", B_N_DEFAULT),
@@ -30,14 +30,32 @@ function getNsaParams() {
   };
 }
 
-function getDriftParams() {
-  return { b_d: readNum("driftEdge", B_D_DEFAULT) };
+export function getDriftParams() {
+  return {
+    b_d: readNum("driftEdge", B_D_DEFAULT),
+    D: readNum("Dmultiplier", D_DEFAULT),
+    tau: readNum("tau", TAU_DEFAULT),
+    sigmaOU: readNum("sigmaOU", SIGMA_OU_DEFAULT),
+    thetaOU: readNum("thetaOU", THETA_OU_DEFAULT)
+  };
+}
+
+function getPixelNoiseSigma() {
+  return readNum("sigma", SIGMA_DEFAULT);
+}
+
+function getEdgeParams() {
+  return {
+    lambdaIn: readNum("lambdaIn", LAMBDA_IN_DEFAULT),
+    lambdaOut: readNum("lambdaOut", LAMBDA_OUT_DEFAULT)
+  };
 }
 
 export function getSpatialParamsKey() {
   const { a_n, b_n } = getNsaParams();
   const { b_d } = getDriftParams();
-  return JSON.stringify([a_n, b_n, b_d]);
+  const { lambdaIn, lambdaOut } = getEdgeParams();
+  return JSON.stringify([a_n, b_n, b_d, lambdaIn, lambdaOut]);
 }
 
 function getNoiseSeed() {
@@ -69,13 +87,19 @@ function toggleFieldGroup(fieldId, on_) {
   el.style.pointerEvents = on_ ? "auto" : "none";
 }
 
-on("driftOn", "change", () => { toggleFieldGroup("driftField", isDriftOn()); notifyDataUpdated(); });
-on("NSAOn",   "change", () => { toggleFieldGroup("nsaField", isNSAOn()); notifyDataUpdated(); });
-on("noiseOn", "change", () => notifyDataUpdated());
+function updateEdgeGeometryVisibility() {
+  toggleFieldGroup("edgeGeometryField", isDriftOn() || isNSAOn());
+}
 
-["nsaBackground", "nsaEdge", "driftEdge"].forEach(id => on(id, "input", () => notifyDataUpdated()));
+on("driftOn", "change", () => { toggleFieldGroup("driftField", isDriftOn()); updateEdgeGeometryVisibility(); notifyDataUpdated(); });
+on("NSAOn",   "change", () => { toggleFieldGroup("nsaField", isNSAOn()); updateEdgeGeometryVisibility(); notifyDataUpdated(); });
+on("noiseOn", "change", () => { toggleFieldGroup("pixelNoiseField", isPixelNoiseOn()); notifyDataUpdated(); });
 
-["nsaBuildup", "nsaFade"].forEach(id => on(id, "input", refreshAndNotify));
+["nsaBackground", "nsaEdge", "driftEdge", "lambdaIn", "lambdaOut", "sigma"]
+  .forEach(id => on(id, "input", () => notifyDataUpdated()));
+
+["nsaBuildup", "nsaFade", "Dmultiplier", "tau", "sigmaOU", "thetaOU"]
+  .forEach(id => on(id, "input", refreshAndNotify));
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -106,8 +130,12 @@ function hashGauss(i, j, t, seed) {
   return (sum - 2) * 1.7320508075688772;
 }
 
-export function pixelNoiseValue(i, j, timeIdx) {
-  return SIGMA_RU * hashGauss(i, j, timeIdx, getNoiseSeed());
+export function getPixelNoiseParams() {
+  return { sigma: getPixelNoiseSigma(), seed: getNoiseSeed() };
+}
+
+export function pixelNoiseValue(i, j, timeIdx, sigma, seed) {
+  return sigma * hashGauss(i, j, timeIdx, seed);
 }
 
 const parseConcs = str =>
@@ -150,8 +178,9 @@ function ensureCurves() {
   const concs   = parseConcs($("concSeries") ? $("concSeries").value : "");
   const seed    = getNoiseSeed();
   const { kaNs, kdNs } = getNsaParams();
+  const { D, tau, sigmaOU, thetaOU } = getDriftParams();
 
-  const key = JSON.stringify([tBase, tAssoc, tDissoc, concs, seed, kaNs, kdNs]);
+  const key = JSON.stringify([tBase, tAssoc, tDissoc, concs, seed, kaNs, kdNs, D, tau, sigmaOU, thetaOU]);
   if (cache.key === key) return cache;
 
   const cyc     = STACK_LEAD_BASELINE_SEC + tAssoc + tDissoc;
@@ -165,19 +194,19 @@ function ensureCurves() {
   const Yns = simRK4Scalar(grid, (y, C) => kaNs * C * (1 - y) - kdNs * y, 0, Cfun);
 
   const rng = mulberry32(seed ^ 0x2545F491);
+
   function gaussStream() {
-    let u = 0, v = 0;
-    while (u === 0) u = rng();
-    while (v === 0) v = rng();
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    let sum = 0;
+    for (let i = 0; i < 4; i++) sum += rng();
+    return (sum - 2) * 1.7320508075688772;
   }
   const driftCommon = new Float64Array(grid.length);
   {
     let w = 0;
     for (let t = 0; t < grid.length; t++) {
-      const envelope = DECAY_OU ? Math.exp(-t / DRIFT_TAU) : 1;
-      w += -THETA_OU * w + SIGMA_OU * envelope * gaussStream();
-      driftCommon[t] = DRIFT_D * (1 - Math.exp(-t / DRIFT_TAU)) + w;
+      const envelope = DECAY_OU ? Math.exp(-t / tau) : 1;
+      w += -thetaOU * w + sigmaOU * envelope * gaussStream();
+      driftCommon[t] = D * (1 - Math.exp(-t / tau)) + w;
     }
   }
 
@@ -190,7 +219,7 @@ function ensureCurves() {
     return Array.from(driftCommon.slice(startIdx, startIdx + nFrames));
   });
 
-  cache = { key, YnsByConc, driftByConc };
+  cache = { key, YnsByConc, driftByConc, grid, Yns, driftCommon };
   return cache;
 }
 
@@ -201,27 +230,69 @@ export function getFrameArtifactScalars(concIdx, timeIdx) {
   return { yns, driftVal };
 }
 
-export function computeSpatialWeights(edgeWeight, m, n) {
-  const P = m * n;
-  const gradMag = new Float32Array(P);
-  for (let i = 1; i < m - 1; i++) {
-    for (let j = 1; j < n - 1; j++) {
-      const k = i * n + j;
-      const gi = ( edgeWeight[k + n - 1] + 2 * edgeWeight[k + n] + edgeWeight[k + n + 1]
-                 - edgeWeight[k - n - 1] - 2 * edgeWeight[k - n] - edgeWeight[k - n + 1] ) / 8;
-      const gj = ( edgeWeight[k - n + 1] + 2 * edgeWeight[k + 1] + edgeWeight[k + n + 1]
-                 - edgeWeight[k - n - 1] - 2 * edgeWeight[k - 1] - edgeWeight[k + n - 1] ) / 8;
-      gradMag[k] = Math.sqrt(gi * gi + gj * gj);
+export function getRawCurves() {
+  const { grid, Yns, driftCommon } = ensureCurves();
+  return { grid, Yns, driftCommon };
+}
+
+const EDT_INF = 1e20;
+
+function edt1d(f, N, d, v, z) {
+  let k = 0;
+  v[0] = 0; z[0] = -Infinity; z[1] = Infinity;
+  for (let q = 1; q < N; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]) {
+      k--;
+      s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
     }
+    k++; v[k] = q; z[k] = s; z[k + 1] = Infinity;
+  }
+  k = 0;
+  for (let q = 0; q < N; q++) {
+    while (z[k + 1] < q) k++;
+    d[q] = (q - v[k]) * (q - v[k]) + f[v[k]];
+  }
+}
+
+function edt2d(mask, m, n) {
+  const L = Math.max(m, n);
+  const f = new Float64Array(L), d = new Float64Array(L);
+  const v = new Int32Array(L + 1), z = new Float64Array(L + 1);
+  const out = new Float64Array(m * n);
+  for (let k = 0; k < m * n; k++) out[k] = mask[k] ? 0 : EDT_INF;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < m; i++) f[i] = out[i * n + j];
+    edt1d(f, m, d, v, z);
+    for (let i = 0; i < m; i++) out[i * n + j] = d[i];
+  }
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) f[j] = out[i * n + j];
+    edt1d(f, n, d, v, z);
+    for (let j = 0; j < n; j++) out[i * n + j] = d[j];
+  }
+  return out;
+}
+
+export function computeSpatialWeights(covered, m, n) {
+  const P = m * n;
+  const inverted = new Uint8Array(P);
+  for (let k = 0; k < P; k++) inverted[k] = covered[k] ? 0 : 1;
+
+  const dToCell = edt2d(covered, m, n);
+  const dToVoid = edt2d(inverted, m, n);
+
+  const signedDist = new Float32Array(P);
+  for (let k = 0; k < P; k++) {
+    signedDist[k] = covered[k] ? (Math.sqrt(dToVoid[k]) - 0.5)
+                               : -(Math.sqrt(dToCell[k]) - 0.5);
   }
 
-  let p95;
-  {
-    const nz = [];
-    for (let k = 0; k < P; k++) if (gradMag[k] > 1e-12) nz.push(gradMag[k]);
-    nz.sort((a, b) => a - b);
-    p95 = nz.length ? nz[Math.min(nz.length - 1, Math.floor(0.95 * nz.length))] : 1;
-    if (!(p95 > 0)) p95 = 1;
+  const { lambdaIn, lambdaOut } = getEdgeParams();
+  const w = new Float32Array(P);
+  for (let k = 0; k < P; k++) {
+    const d = signedDist[k];
+    w[k] = (d >= 0) ? Math.exp(-d / lambdaIn) : Math.exp(d / lambdaOut);
   }
 
   const { a_n, b_n } = getNsaParams();
@@ -230,9 +301,8 @@ export function computeSpatialWeights(edgeWeight, m, n) {
   const nsaRate = new Float32Array(P);
   const gDrift  = new Float32Array(P);
   for (let k = 0; k < P; k++) {
-    const ghat = gradMag[k] / p95;
-    nsaRate[k] = a_n + b_n * ghat;
-    gDrift[k]  = A_D + b_d * ghat;
+    nsaRate[k] = a_n + b_n * w[k];
+    gDrift[k]  = A_D + b_d * w[k];
   }
-  return { nsaRate, gDrift };
+  return { nsaRate, gDrift, w, signedDist };
 }

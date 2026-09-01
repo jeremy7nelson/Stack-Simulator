@@ -59,6 +59,114 @@ async function encodeCompressedData(typedArrayOrBuffer) {
   return u8ToBase64(compressed);
 }
 
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(u8) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) crc = CRC_TABLE[(crc ^ u8[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function dosDateTime(date) {
+  const time = ((date.getHours() & 0x1f) << 11) | ((date.getMinutes() & 0x3f) << 5) | ((date.getSeconds() >> 1) & 0x1f);
+  const day  = (((date.getFullYear() - 1980) & 0x7f) << 9) | (((date.getMonth() + 1) & 0xf) << 5) | (date.getDate() & 0x1f);
+  return { time, day };
+}
+
+class ZipWriter {
+  constructor() {
+    this.chunks = [];
+    this.offset = 0;
+    this.central = [];
+  }
+
+  _push(u8) {
+    this.chunks.push(u8);
+    this.offset += u8.length;
+  }
+
+  async addFile(name, uint8Data, when = new Date()) {
+    const nameBytes = new TextEncoder().encode(name);
+    const { time, day } = dosDateTime(when);
+    const crc = crc32(uint8Data);
+    const compressed = await deflateRawCompress(uint8Data);
+    const usize = uint8Data.length, csize = compressed.length;
+    const localOffset = this.offset;
+
+    const header = new Uint8Array(30 + nameBytes.length);
+    const dv = new DataView(header.buffer);
+    dv.setUint32(0, 0x04034b50, true);
+    dv.setUint16(4, 20, true);
+    dv.setUint16(6, 0, true);
+    dv.setUint16(8, 8, true);
+    dv.setUint16(10, time, true);
+    dv.setUint16(12, day, true);
+    dv.setUint32(14, crc, true);
+    dv.setUint32(18, csize, true);
+    dv.setUint32(22, usize, true);
+    dv.setUint16(26, nameBytes.length, true);
+    dv.setUint16(28, 0, true);
+    header.set(nameBytes, 30);
+
+    this._push(header);
+    this._push(compressed);
+    this.central.push({ name: nameBytes, crc, csize, usize, time, day, offset: localOffset });
+  }
+
+  finalize() {
+    const centralStart = this.offset;
+    for (const e of this.central) {
+      const header = new Uint8Array(46 + e.name.length);
+      const dv = new DataView(header.buffer);
+      dv.setUint32(0, 0x02014b50, true);
+      dv.setUint16(4, 20, true);
+      dv.setUint16(6, 20, true);
+      dv.setUint16(8, 0, true);
+      dv.setUint16(10, 8, true);
+      dv.setUint16(12, e.time, true);
+      dv.setUint16(14, e.day, true);
+      dv.setUint32(16, e.crc, true);
+      dv.setUint32(20, e.csize, true);
+      dv.setUint32(24, e.usize, true);
+      dv.setUint16(28, e.name.length, true);
+      dv.setUint16(30, 0, true);
+      dv.setUint16(32, 0, true);
+      dv.setUint16(34, 0, true);
+      dv.setUint16(36, 0, true);
+      dv.setUint32(38, 0, true);
+      dv.setUint32(42, e.offset, true);
+      header.set(e.name, 46);
+      this._push(header);
+    }
+    const centralSize = this.offset - centralStart;
+
+    const eocd = new Uint8Array(22);
+    const dv = new DataView(eocd.buffer);
+    dv.setUint32(0, 0x06054b50, true);
+    dv.setUint16(4, 0, true);
+    dv.setUint16(6, 0, true);
+    dv.setUint16(8, this.central.length, true);
+    dv.setUint16(10, this.central.length, true);
+    dv.setUint32(12, centralSize, true);
+    dv.setUint32(16, centralStart, true);
+    dv.setUint16(20, 0, true);
+    this._push(eocd);
+
+    const out = new Uint8Array(this.offset);
+    let pos = 0;
+    for (const c of this.chunks) { out.set(c, pos); pos += c.length; }
+    return out;
+  }
+}
+
 function formatTimestamp(when = new Date()) {
   const pad = n => String(n).padStart(2, '0');
   return `${pad(when.getMonth()+1)}/${pad(when.getDate())}/${when.getFullYear()} ` +
@@ -316,11 +424,11 @@ function buildStkBuffer(baseDate = new Date(), concIdx = 0, seqIndex = concIdx, 
   return buf;
 }
 
-function addStkFilesToFolder(folder, baseDate = new Date()) {
-  folder.file('spr_stack_calibration.stk', buildSpecialStkBuffer('calibration', baseDate, 0));
-  folder.file('spr_stack_blank.stk', buildSpecialStkBuffer('blank', baseDate, 1));
+async function addStkEntries(writer, baseDate = new Date()) {
+  await writer.addFile('Stacks/spr_stack_calibration.stk', new Uint8Array(buildSpecialStkBuffer('calibration', baseDate, 0)), baseDate);
+  await writer.addFile('Stacks/spr_stack_blank.stk', new Uint8Array(buildSpecialStkBuffer('blank', baseDate, 1)), baseDate);
   for (let c = 0; c < state.parsed.nSpots; c++) {
-    folder.file(stkFileName(c), buildStkBuffer(baseDate, c, c, c + 2));
+    await writer.addFile('Stacks/' + stkFileName(c), new Uint8Array(buildStkBuffer(baseDate, c, c, c + 2)), baseDate);
   }
 }
 
@@ -383,16 +491,18 @@ async function downloadAll() {
 
   const baseDate  = new Date();
   const startTime = formatTimestamp(baseDate);
+  const enc = new TextEncoder();
 
   const roiXml = await buildRoiXml(startTime);
   const biXml  = await buildBiXml(startTime);
 
-  const zip = new JSZip();
-  addStkFilesToFolder(zip.folder("Stacks"), baseDate);
-  zip.folder("ROI").file("spr.roi", roiXml);
-  zip.folder("Data").file("data.bi", biXml);
+  const writer = new ZipWriter();
+  await writer.addFile('ROI/spr.roi', enc.encode(roiXml), baseDate);
+  await writer.addFile('Data/data.bi', enc.encode(biXml), baseDate);
+  await addStkEntries(writer, baseDate);
 
-  const blob = await zip.generateAsync({ type: "blob" });
+  const zipBytes = writer.finalize();
+  const blob = new Blob([zipBytes], { type: "application/zip" });
   const a = Object.assign(document.createElement("a"), {
     href:     URL.createObjectURL(blob),
     download: "spr_export.zip"

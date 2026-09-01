@@ -4,21 +4,22 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="./dependencies/style.css">
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
         <script type="module" src="./dependencies/main.js"></script>
         <script type="module" src="./dependencies/kinetics.js"></script>
         <script type="module" src="./dependencies/noise.js"></script>
         <script type="module" src="./dependencies/render.js"></script>
         <script type="module" src="./dependencies/download.js"></script>
-        <script type="module" src="./dependencies/exporting.js"></script>
-        <script type="module" src="./dependencies/plotting.js"></script>
+        <script type="module" src="./dependencies/plot.js"></script>
     </head>
     <body>
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="tab-simulator">Simulator</button>
+        <button class="tab-btn" data-tab="tab-plots">Diagnostic Plots</button>
+      </div>
+
+      <div class="tab-panel" id="tab-simulator">
       <div class="container">
         <main class="controls">
-          <div class="group">
-            <p class="group-title">Import Model Information</p>
-          </div>
           <div class="group">
             <p class="group-title">Model generation</p>
             <div class="field">
@@ -31,14 +32,12 @@
               <label>Capacity Bins <span class="unit">fraction of Rmax, 0–1, comma/space separated</span></label>
               <input type="text" id="capacityBin" value="0.4, 0.6, 0.8, 1">
             </div>
-            <div class="check">
-              <input type="checkbox" id="overlap">
-              <label>Allow Overlap</label>
-            </div>
-            <div class="check">
-              <input type="checkbox" id="dominance">
-              <label>Allow Edge-Dominance</label>
-            </div>
+            <label class="check">
+              <input type="checkbox" id="overlap">Allow Overlap
+            </label>
+            <label class="check">
+              <input type="checkbox" id="dominance">Allow Edge-Dominance
+            </label>
           </div>
 
           <div class="group">
@@ -48,47 +47,71 @@
                 <label class="check">
                   <input type="checkbox" id="noiseOn"> Add Per Pixel Noise
                 </label>
+                <div class="grid2" id="pixelNoiseField" style="opacity:.45; pointer-events:none">
+                  <div class="field">
+                    <label>sigma <span class="unit">× specific-binding peak</span></label>
+                    <input type="number" id="sigma" value="0.01" min="0" step="any">
+                  </div>
+                </div>
                 <label class="check">
                   <input type="checkbox" id="driftOn"> Add Drift
-                  <div class="grid2" id="driftField" style="opacity:.45; pointer-events:none">
-                    <div class="field">
-                      <label>Drift at Cell Edges <span class="unit">0–0.3</span></label>
-                      <input type="number" id="driftEdge" value="0.15" max="0.3" min="0" step="0.1">
-                    </div>
-                    <div class="field">
-                      <label>Instrument Drift</label>
-                      <input type="number" id="Dmultiplier" value="3.5" min="0" step="0.5">
-                    </div>
-                    <div class="field">
-                      <label>tau</label>
-                      <input type="number" id="tau" value="500" min="0">
-                    </div>
-                    <div class="field">
-                      
-                    </div>
-                  </div>
                 </label>
+                <div class="grid2" id="driftField" style="opacity:.45; pointer-events:none">
+                  <div class="field">
+                    <label>Drift at Cell Edges <span class="unit">0–0.3</span></label>
+                    <input type="number" id="driftEdge" value="0.15" max="0.3" min="0" step="0.1">
+                  </div>
+                  <div class="field">
+                    <label>Instrument Drift <span class="unit">× specific-binding peak</span></label>
+                    <input type="number" id="Dmultiplier" value="0.35" min="0" step="0.05">
+                  </div>
+                  <div class="field">
+                    <label>tau</label>
+                    <input type="number" id="tau" value="500" min="0">
+                  </div>
+                  <div class="field">
+                    <label>sigma OU</label>
+                    <input type="number" id="sigmaOU" value="0.002" min="0" step="any">
+                  </div>
+                  <div class="field">
+                    <label>theta OU</label>
+                    <input type="number" id="thetaOU" value="0.005" min="0" step="any">
+                  </div>
+                </div>
                 <label class="check">
                   <input type="checkbox" id="NSAOn"> Add Non-specific Binding
-                  <div class="grid2" id="nsaField" style="opacity:.45; pointer-events:none">
+                </label>
+                <div class="grid2" id="nsaField" style="opacity:.45; pointer-events:none">
+                  <div class="field">
+                    <label>Background Floor <span class="unit">× specific-binding peak</span></label>
+                    <input type="number" id="nsaBackground" value="0.65" min="0" step="any">
+                  </div>
+                  <div class="field">
+                    <label>Added at Edges <span class="unit">× specific-binding peak</span></label>
+                    <input type="number" id="nsaEdge" value="0.65" min="0" step="any">
+                  </div>
+                  <div class="field">
+                    <label>Buildup Rate</label>
+                    <input type="number" id="nsaBuildup" value="4e3" min="0" step="any">
+                  </div>
+                  <div class="field">
+                    <label>Fade Rate</label>
+                    <input type="number" id="nsaFade" value="1e-4" min="0" step="any">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Edge Geometry <span class="unit">shared by Drift &amp; NSA — active when either is on</span></label>
+                  <div class="grid2" id="edgeGeometryField" style="opacity:.45; pointer-events:none">
                     <div class="field">
-                      <label>Background Floor <span class="unit">× specific-binding peak</span></label>
-                      <input type="number" id="nsaBackground" value="0.65" min="0" step="0.1">
+                      <label>Edge Falloff — Into Cell <span class="unit">px</span></label>
+                      <input type="number" id="lambdaIn" value="8" min="0" step="any">
                     </div>
                     <div class="field">
-                      <label>Added at Edges <span class="unit">× specific-binding peak</span></label>
-                      <input type="number" id="nsaEdge" value="0.65" min="0" step="0.1">
-                    </div>
-                    <div class="field">
-                      <label>Buildup Rate</label>
-                      <input type="number" id="nsaBuildup" value="4e3" min="0" step="any">
-                    </div>
-                    <div class="field">
-                      <label>Fade Rate</label>
-                      <input type="number" id="nsaFade" value="1e-4" min="0" step="any">
+                      <label>Edge Falloff — Into Medium <span class="unit">px</span></label>
+                      <input type="number" id="lambdaOut" value="2" min="0" step="any">
                     </div>
                   </div>
-                </label>
+                </div>
                 <label>Noise Seed</label>
                 <input type="number" class="seed" id="noiseSeed" value="0">
                 <button class="pri" id="genNoiseSeed">Generate Random Seed</button>
@@ -101,7 +124,7 @@
             <div class="section">
               <div class="field">
                 <label>Model Types</label>
-                <input type="number" id="regionCount" min="1" value="2">
+                <input type="number" id="regionCount" min="1" value="3">
               </div>
               <div class="field">
                 <label>Model</label>
@@ -132,7 +155,6 @@
             <div class="section">
               <p class="label">Kinetic constants</p>
 
-              <!-- 1:1 / mass transport rates -->
               <div data-group="simple">
                 <div class="grid2">
                   <div class="field">
@@ -146,7 +168,6 @@
                 </div>
               </div>
 
-              <!-- two-state rates -->
               <div data-group="twostate" style="display:none">
                 <div class="grid2">
                   <div class="field">
@@ -168,7 +189,6 @@
                 </div>
               </div>
 
-              <!-- bivalent analyte rates -->
               <div data-group="bivAnalyte" style="display:none">
                 <div class="grid2">
                   <div class="field">
@@ -190,7 +210,6 @@
                 </div>
               </div>
 
-              <!-- hetLigand -->
               <div data-group="hetLigand" style="display:none">
                 <div class="grid2">
                   <div class="field">
@@ -216,7 +235,6 @@
               </div>
               </div>
 
-              <!-- mass-transport limitation: a modifier that applies to ANY model -->
               <div class="check">
                 <input type="checkbox" id="mtlOn">
                 <label for="mtlOn">Mass-transport limitation</label>
@@ -296,16 +314,51 @@
                 </div>
                 <div class="card">
                     <div class="label">Export</div>
-                      <div class="btn-row">
-                        <button class="pri" id="downloadAll"> Download all files </button>
-                        <div id="status" class="status"></div>
-                      </div>
-                      <h1></h1>
-                      <button class="pri" id="exportInfo">Export Model Information</button>
+                    <div class="btn-row">
+                      <button class="pri" id="downloadAll"> Download all files </button>
+                      <div id="status" class="status"></div>
                     </div>
                 </div>
             </div>
         </aside>
+      </div>
+      </div>
+
+      <div class="tab-panel" id="tab-plots" style="display:none">
+        <div class="plots-grid">
+          <div class="plot-card">
+            <canvas id="plot-yns" width="640" height="220"></canvas>
+            <div class="plot-caption">Yns(t) — fractional NSA occupancy, bounded by background and cell-margin rates</div>
+          </div>
+          <div class="plot-card">
+            <canvas id="plot-drift" width="640" height="220"></canvas>
+            <div class="plot-caption">driftCommon(t) — shared drift time course, bounded by background and cell-margin gains</div>
+          </div>
+          <div class="plots-row">
+            <div class="plot-card">
+              <canvas id="plot-s"></canvas>
+              <div class="ckey">
+                <div class="bar" id="s-bar"></div>
+                <div class="lab"><span id="s-lo"></span><span>s = capacity × edge profile</span><span id="s-hi"></span></div>
+              </div>
+            </div>
+            <div class="plot-card">
+              <canvas id="plot-w"></canvas>
+              <div class="ckey">
+                <div class="bar" id="w-bar"></div>
+                <div class="lab"><span id="w-lo"></span><span>w = edge-proximity weight</span><span id="w-hi"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="plot-card">
+            <canvas id="plot-decomp" width="640" height="260"></canvas>
+            <div class="plot-caption">Signal decomposition at the brightest rim pixel — band thickness = that term's contribution</div>
+            <table id="decomp-readout">
+              <thead><tr><th>Term</th><th>weight</th><th>% of full range now</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </body>
 </html>
